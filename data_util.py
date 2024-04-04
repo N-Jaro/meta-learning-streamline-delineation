@@ -53,6 +53,9 @@ class MetaDataLoader:
           temp_data = []
           temp_labels = []
 
+          print(data_dict[location]['train_label'].shape)
+          print(data_dict[location]['train_data'].shape)
+
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
               if np.sum(label == 1) > self.num_valid_pixels:  
@@ -66,7 +69,6 @@ class MetaDataLoader:
           else:
               # Handle cases where not enough samples meet the criteria in the location
               print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+ f" pixels of class 1 in location for support set in {location}")
-
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
