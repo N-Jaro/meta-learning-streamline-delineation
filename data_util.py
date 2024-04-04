@@ -65,7 +65,7 @@ class MetaDataLoader:
               selected_labels.extend(temp_labels[:self.num_samples_per_location])
           else:
               # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+" pixels of class 1 in location for support set in {location}")
+              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+ f" pixels of class 1 in location for support set in {location}")
 
 
         data = np.array(selected_data)
@@ -100,7 +100,7 @@ class MetaDataLoader:
               selected_labels.extend(temp_labels[:self.num_samples_per_location])
           else:
               # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+" pixels of class 1 in location for query set in {location}")
+              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+ f" pixels of class 1 in location for query set in {location}")
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
