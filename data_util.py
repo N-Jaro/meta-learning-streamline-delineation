@@ -3,9 +3,10 @@ import numpy as np
 import tensorflow as tf
 
 class MetaDataLoader:
-    def __init__(self, data_dir, num_samples_per_location=100):
+    def __init__(self, data_dir, num_samples_per_location=100, num_valid_pixels=200):
         self.data_dir = data_dir
         self.num_samples_per_location = num_samples_per_location
+        self.num_valid_pixels = num_valid_pixels
 
     def _load_and_process_data(self, locations):
         data_dict = {}
@@ -52,7 +53,7 @@ class MetaDataLoader:
 
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
-              if np.sum(label == 1) > 500:  # Check if label has more than 500 pixels of class 1
+              if np.sum(label == 1) > self.num_valid_pixels:  # Check if label has more than 500 pixels of class 1
                   temp_data.append(data)
                   temp_labels.append(label)
 
