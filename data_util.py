@@ -8,6 +8,8 @@ class MetaDataLoader:
         self.num_samples_per_location = num_samples_per_location
         self.num_valid_pixels = num_valid_pixels
 
+        print("Creating data episodes with more than ", self.num_valid_pixels , " stream pixel per patch")
+
     def _load_and_process_data(self, locations):
         data_dict = {}
 
@@ -53,7 +55,7 @@ class MetaDataLoader:
 
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
-              if np.sum(label == 1) > self.num_valid_pixels:  # Check if label has more than 500 pixels of class 1
+              if np.sum(label == 1) > self.num_valid_pixels:  
                   temp_data.append(data)
                   temp_labels.append(label)
 
@@ -88,7 +90,7 @@ class MetaDataLoader:
 
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['vali_data'], data_dict[location]['vali_label']):
-              if np.sum(label == 1) > self.num_valid_pixels:  # Check if label has more than 500 pixels of class 1
+              if np.sum(label == 1) > self.num_valid_pixels:  
                   temp_data.append(data)
                   temp_labels.append(label)
 
