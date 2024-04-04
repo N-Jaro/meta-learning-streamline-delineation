@@ -3,12 +3,9 @@ import numpy as np
 import tensorflow as tf
 
 class MetaDataLoader:
-    def __init__(self, data_dir, num_samples_per_location=100, num_valid_pixels=200):
+    def __init__(self, data_dir, num_samples_per_location=100):
         self.data_dir = data_dir
         self.num_samples_per_location = num_samples_per_location
-        self.num_valid_pixels = num_valid_pixels
-
-        print("Creating data episodes with more than ", self.num_valid_pixels , " stream pixel per patch")
 
     def _load_and_process_data(self, locations):
         data_dict = {}
@@ -53,12 +50,9 @@ class MetaDataLoader:
           temp_data = []
           temp_labels = []
 
-          print(data_dict[location]['train_label'].shape)
-          print(data_dict[location]['train_data'].shape)
-
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
-              if np.sum(label == 1) > self.num_valid_pixels:  
+              if np.sum(label == 1) > 500:  # Check if label has more than 500 pixels of class 1
                   temp_data.append(data)
                   temp_labels.append(label)
 
@@ -68,7 +62,8 @@ class MetaDataLoader:
               selected_labels.extend(temp_labels[:self.num_samples_per_location])
           else:
               # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+ f" pixels of class 1 in location for support set in {location}")
+              print(f"Warning: Not enough samples with >500 pixels of class 1 in location for support set in {location}")
+
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
@@ -92,7 +87,7 @@ class MetaDataLoader:
 
           # Iterate over samples in the location's training data
           for data, label in zip(data_dict[location]['vali_data'], data_dict[location]['vali_label']):
-              if np.sum(label == 1) > self.num_valid_pixels:  
+              if np.sum(label == 1) > 500:  # Check if label has more than 500 pixels of class 1
                   temp_data.append(data)
                   temp_labels.append(label)
 
@@ -102,7 +97,7 @@ class MetaDataLoader:
               selected_labels.extend(temp_labels[:self.num_samples_per_location])
           else:
               # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with > "+str(self.num_valid_pixels)+ f" pixels of class 1 in location for query set in {location}")
+              print(f"Warning: Not enough samples with >500 pixels of class 1 in location for query set in {location}")
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
