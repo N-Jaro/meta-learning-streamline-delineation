@@ -3,7 +3,7 @@ import numpy as np
 import tensorflow as tf
 
 class MetaDataLoader:
-    def __init__(self, data_dir, num_samples_per_location=25):
+    def __init__(self, data_dir, num_samples_per_location=100):
         self.data_dir = data_dir
         self.num_samples_per_location = num_samples_per_location
         self.data_dict = {}  # This dictionary will cache the loaded data.
@@ -19,12 +19,12 @@ class MetaDataLoader:
             vali_data_path = os.path.join(location_dir, "vali_data.npy")
             vali_label_path = os.path.join(location_dir, "vali_label.npy")
 
-            # Load and store the data and labels in the data_dict
+            # Load and store the data and labels in the data_dict, ensuring no negative values
             self.data_dict[location] = {
-                'train_data': np.load(train_data_path),
-                'train_label': np.load(train_label_path),
-                'vali_data': np.load(vali_data_path),
-                'vali_label': np.load(vali_label_path)
+                'train_data': np.clip(np.load(train_data_path), 0, None),
+                'train_label': np.clip(np.load(train_label_path), 0, None),
+                'vali_data': np.clip(np.load(vali_data_path), 0, None),
+                'vali_label': np.clip(np.load(vali_label_path), 0, None)
             }
 
     def _create_episode(self, locations):
