@@ -3,10 +3,9 @@ import numpy as np
 import tensorflow as tf
 
 class MetaDataLoader:
-    def __init__(self, data_dir, num_samples_per_location=100, stream_pixel_per_patch=10):
+    def __init__(self, data_dir, num_samples_per_location=25):
         self.data_dir = data_dir
         self.num_samples_per_location = num_samples_per_location
-        self.stream_pixel_per_patch = stream_pixel_per_patch
         self.data_dict = {}  # This dictionary will cache the loaded data.
 
     def load_all_data(self, locations):
@@ -29,54 +28,28 @@ class MetaDataLoader:
             }
 
     def _create_episode(self, locations):
-        selected_data = []
-        selected_labels = []
-
-        # Processing for creating support set
-        for location in locations:
-            temp_data = []
-            temp_labels = []
-
-            # Iterate over samples in the location's training data
-            for data, label in zip(self.data_dict[location]['train_data'], self.data_dict[location]['train_label']):
-                if np.sum(label > 0) >= self.stream_pixel_per_patch:
-                    temp_data.append(data)
-                    temp_labels.append(label)
-
-            if len(temp_data) >= self.num_samples_per_location:
-                indices = np.random.choice(len(temp_data), self.num_samples_per_location, replace=False)
-                selected_data.extend(np.array(temp_data)[indices])
-                selected_labels.extend(np.array(temp_labels)[indices])
-            else:
-                print(f"Warning: Not enough samples in {location}")
-
-        support_set_data = np.array(selected_data)
-        support_set_labels = np.array(selected_labels)
-
-        selected_data = []
-        selected_labels = []
-
-        # Processing for creating query set
-        for location in locations:
-            temp_data = []
-            temp_labels = []
-
-            for data, label in zip(self.data_dict[location]['vali_data'], self.data_dict[location]['vali_label']):
-                if np.sum(label > 0) >= self.stream_pixel_per_patch:
-                    temp_data.append(data)
-                    temp_labels.append(label)
-
-            if len(temp_data) >= self.num_samples_per_location:
-                indices = np.random.choice(len(temp_data), self.num_samples_per_location, replace=False)
-                selected_data.extend(np.array(temp_data)[indices])
-                selected_labels.extend(np.array(temp_labels)[indices])
-            else:
-                print(f"Warning: Not enough samples in {location}")
-
-        query_set_data = np.array(selected_data)
-        query_set_labels = np.array(selected_labels)
+        # Create support and query sets by randomly selecting samples
+        support_set_data, support_set_labels = self._random_select_samples(locations, 'train')
+        query_set_data, query_set_labels = self._random_select_samples(locations, 'vali')
 
         return support_set_data, support_set_labels, query_set_data, query_set_labels
+
+    def _random_select_samples(self, locations, data_type):
+        selected_data = []
+        selected_labels = []
+
+        for location in locations:
+            data = self.data_dict[location][f'{data_type}_data']
+            labels = self.data_dict[location][f'{data_type}_label']
+
+            if len(data) >= self.num_samples_per_location:
+                indices = np.random.choice(len(data), self.num_samples_per_location, replace=False)
+                selected_data.extend(data[indices])
+                selected_labels.extend(labels[indices])
+            else:
+                print(f"Warning: Not enough samples in {location}")
+
+        return np.array(selected_data), np.array(selected_labels)
 
     def create_multi_episodes(self, num_episodes, locations):
         self.load_all_data(locations)  # Load data once here
