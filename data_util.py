@@ -19,43 +19,48 @@ class MetaDataLoader:
             vali_data_path = os.path.join(location_dir, "vali_data.npy")
             vali_label_path = os.path.join(location_dir, "vali_label.npy")
 
-            # Load and store the data and labels in the data_dict, ensuring no negative values
+            # Load and process data and labels, ensuring no negative values
+            train_data = np.load(train_data_path)
+            train_data[train_data < 0] = 0  # Replace negatives with 0
+            vali_data = np.load(vali_data_path)
+            vali_data[vali_data < 0] = 0  # Replace negatives with 0
+
+            # Store the non-negative data and labels in the data_dict
             self.data_dict[location] = {
-                'train_data': np.clip(np.load(train_data_path), 0, None),
-                'train_label': np.clip(np.load(train_label_path), 0, None),
-                'vali_data': np.clip(np.load(vali_data_path), 0, None),
-                'vali_label': np.clip(np.load(vali_label_path), 0, None)
+                'train_data': train_data,
+                'train_label': np.load(train_label_path),
+                'vali_data': vali_data,
+                'vali_label': np.load(vali_label_path)
             }
 
-    def _create_episode(self, locations):
-        # Create support and query sets by randomly selecting samples
-        support_set_data, support_set_labels = self._random_select_samples(locations, 'train')
-        query_set_data, query_set_labels = self._random_select_samples(locations, 'vali')
+    def _create_episode(self, location):
+        # Randomly select samples from one location for both support and query sets
+        support_set_data, support_set_labels = self._random_select_samples(location, 'train')
+        query_set_data, query_set_labels = self._random_select_samples(location, 'vali')
 
         return support_set_data, support_set_labels, query_set_data, query_set_labels
 
-    def _random_select_samples(self, locations, data_type):
-        selected_data = []
-        selected_labels = []
+    def _random_select_samples(self, location, data_type):
+        data = self.data_dict[location][f'{data_type}_data']
+        labels = self.data_dict[location][f'{data_type}_label']
 
-        for location in locations:
-            data = self.data_dict[location][f'{data_type}_data']
-            labels = self.data_dict[location][f'{data_type}_label']
+        if len(data) >= self.num_samples_per_location:
+            indices = np.random.choice(len(data), self.num_samples_per_location, replace=False)
+            selected_data = data[indices]
+            selected_labels = labels[indices]
+        else:
+            print(f"Warning: Not enough samples in {location}")
+            selected_data = np.array([])
+            selected_labels = np.array([])
 
-            if len(data) >= self.num_samples_per_location:
-                indices = np.random.choice(len(data), self.num_samples_per_location, replace=False)
-                selected_data.extend(data[indices])
-                selected_labels.extend(labels[indices])
-            else:
-                print(f"Warning: Not enough samples in {location}")
-
-        return np.array(selected_data), np.array(selected_labels)
+        return selected_data, selected_labels
 
     def create_multi_episodes(self, num_episodes, locations):
         self.load_all_data(locations)  # Load data once here
         episodes = []
         for _ in range(num_episodes):
-            episode_data = self._create_episode(locations)
+            location = np.random.choice(locations)  # Select a random location
+            episode_data = self._create_episode(location)
             episode = {
                 "support_set_data": episode_data[0],
                 "support_set_labels": episode_data[1],
