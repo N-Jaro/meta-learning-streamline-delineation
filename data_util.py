@@ -54,7 +54,7 @@ class MetaDataLoader:
             # Iterate over samples in the location's training data
             for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
                 # Check if label has more than 500 pixels of class 1
-                if np.sum(label == 1) >= self.stream_pixel_per_patch:
+                if np.sum(label > 0 ) >= self.stream_pixel_per_patch:
                     temp_data.append(data)
                     temp_labels.append(label)
 
@@ -91,7 +91,7 @@ class MetaDataLoader:
             # Iterate over samples in the location's training data
             for data, label in zip(data_dict[location]['vali_data'], data_dict[location]['vali_label']):
                 # Check if label has more than 500 pixels of class 1
-                if np.sum(label == 1) >= self.stream_pixel_per_patch:
+                if np.sum(label > 0 ) >= self.stream_pixel_per_patch:
                     temp_data.append(data)
                     temp_labels.append(label)
 
