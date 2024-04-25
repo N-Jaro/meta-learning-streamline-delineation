@@ -2,10 +2,12 @@ import os
 import numpy as np
 import tensorflow as tf
 
+
 class MetaDataLoader:
-    def __init__(self, data_dir, num_samples_per_location=100):
+    def __init__(self, data_dir, num_samples_per_location=100, stream_pixel_per_patch=10):
         self.data_dir = data_dir
         self.num_samples_per_location = num_samples_per_location
+        self.stream_pixel_per_patch = stream_pixel_per_patch
 
     def _load_and_process_data(self, locations):
         data_dict = {}
@@ -40,30 +42,31 @@ class MetaDataLoader:
 
         data_dict = self._load_and_process_data(locations)
 
-
-        #--------- Create the support set -------------
+        # --------- Create the support set -------------
         selected_data = []
         selected_labels = []
 
         for location in locations:
-          # Initialize temporary lists
-          temp_data = []
-          temp_labels = []
+            # Initialize temporary lists
+            temp_data = []
+            temp_labels = []
 
-          # Iterate over samples in the location's training data
-          for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
-              if np.sum(label == 1) > 500:  # Check if label has more than 500 pixels of class 1
-                  temp_data.append(data)
-                  temp_labels.append(label)
+            # Iterate over samples in the location's training data
+            for data, label in zip(data_dict[location]['train_data'], data_dict[location]['train_label']):
+                # Check if label has more than 500 pixels of class 1
+                if np.sum(label == 1) >= self.stream_pixel_per_patch:
+                    temp_data.append(data)
+                    temp_labels.append(label)
 
-          # Ensure you have enough samples
-          if len(temp_data) >= self.num_samples_per_location:
-              selected_data.extend(temp_data[:self.num_samples_per_location])
-              selected_labels.extend(temp_labels[:self.num_samples_per_location])
-          else:
-              # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with >500 pixels of class 1 in location for support set in {location}")
-
+            # Ensure you have enough samples
+            if len(temp_data) >= self.num_samples_per_location:
+                selected_data.extend(temp_data[:self.num_samples_per_location])
+                selected_labels.extend(
+                    temp_labels[:self.num_samples_per_location])
+            else:
+                # Handle cases where not enough samples meet the criteria in the location
+                print(
+                    f"Warning: Not enough samples with > {self.stream_pixel_per_patch} pixels of class 1 in location for support set in {location}")
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
@@ -74,30 +77,33 @@ class MetaDataLoader:
         support_set_data = data[indices]
         support_set_labels = labels[indices]
 
-        #--------- End create the support set -------------
+        # --------- End create the support set -------------
 
-        #--------- Create the query set -------------
+        # --------- Create the query set -------------
         selected_data = []
         selected_labels = []
 
         for location in locations:
-          # Initialize temporary lists
-          temp_data = []
-          temp_labels = []
+            # Initialize temporary lists
+            temp_data = []
+            temp_labels = []
 
-          # Iterate over samples in the location's training data
-          for data, label in zip(data_dict[location]['vali_data'], data_dict[location]['vali_label']):
-              if np.sum(label == 1) > 500:  # Check if label has more than 500 pixels of class 1
-                  temp_data.append(data)
-                  temp_labels.append(label)
+            # Iterate over samples in the location's training data
+            for data, label in zip(data_dict[location]['vali_data'], data_dict[location]['vali_label']):
+                # Check if label has more than 500 pixels of class 1
+                if np.sum(label == 1) >= self.stream_pixel_per_patch:
+                    temp_data.append(data)
+                    temp_labels.append(label)
 
-          # Ensure you have enough samples
-          if len(temp_data) >= self.num_samples_per_location:
-              selected_data.extend(temp_data[:self.num_samples_per_location])
-              selected_labels.extend(temp_labels[:self.num_samples_per_location])
-          else:
-              # Handle cases where not enough samples meet the criteria in the location
-              print(f"Warning: Not enough samples with >500 pixels of class 1 in location for query set in {location}")
+            # Ensure you have enough samples
+            if len(temp_data) >= self.num_samples_per_location:
+                selected_data.extend(temp_data[:self.num_samples_per_location])
+                selected_labels.extend(
+                    temp_labels[:self.num_samples_per_location])
+            else:
+                # Handle cases where not enough samples meet the criteria in the location
+                print(
+                    f"Warning: Not enough samples with > {self.stream_pixel_per_patch} pixels of class 1 in location for query set in {location}")
 
         data = np.array(selected_data)
         labels = np.array(selected_labels)
@@ -108,14 +114,15 @@ class MetaDataLoader:
         query_set_data = data[indices]
         query_set_labels = labels[indices]
 
-        #--------- End create the query set -------------
+        # --------- End create the query set -------------
 
         return support_set_data, support_set_labels, query_set_data, query_set_labels
 
     def create_multi_episodes(self, num_episodes, locations):
         episodes = []
         for _ in range(num_episodes):
-            support_set_data, support_set_labels, query_set_data, query_set_labels = self._create_episode(locations)
+            support_set_data, support_set_labels, query_set_data, query_set_labels = self._create_episode(
+                locations)
             episode = {
                 "support_set_data": support_set_data,
                 "support_set_labels": support_set_labels,
