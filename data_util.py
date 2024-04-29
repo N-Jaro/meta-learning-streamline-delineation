@@ -60,6 +60,7 @@ class MetaDataLoader:
         episodes = []
         for _ in range(num_episodes):
             location = np.random.choice(locations)  # Select a random location
+            print(location)
             episode_data = self._create_episode(location)
             episode = {
                 "support_set_data": episode_data[0],
