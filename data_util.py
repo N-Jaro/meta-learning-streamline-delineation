@@ -50,6 +50,8 @@ class MetaDataLoader:
             data_min = 0
             data_max = 255
             return 2 * ((data - data_min) / (data_max - data_min)) - 1
+        elif self.normalization_type == 'none':
+            return data
         else:
             raise ValueError("Unsupported normalization type. Choose '0-1' or '-1-1'.")
 
