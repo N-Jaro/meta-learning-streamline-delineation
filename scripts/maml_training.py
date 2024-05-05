@@ -6,9 +6,9 @@ import datetime
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from data_util import MetaDataLoader
-from models.attentionUnet import AttentionUnet
-from models.unet import UNet
-from models.loss import dice_coefficient, dice_loss
+from libs.attentionUnet import AttentionUnet
+from libs.unet import UNet
+from libs.loss import dice_coefficient, dice_loss
 
 # --- Data Loading and Preprocessing ---
 
