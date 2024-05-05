@@ -32,7 +32,7 @@ The tasks within this study are defined by geographic location. This approach is
 The Attention U-Net architecture will be the foundation for both the meta-learning model and the baseline model. This choice is motivated by the architecture's effectiveness in streamline delineation tasks, as demonstrated in Xu's 2021 study. The MAML algorithm will be employed to optimize the initial weights of the Attention U-Net model. This optimization aims to achieve faster training times and enhanced generalization across new locations.
 
 ## Experimental Setup and Evaluation
-The initial experiments will utilize a 10-shot learning paradigm. However, we will explore different values for "n" in n-shot learning to identify the optimal configuration. To establish a robust comparison, we will employ three additional training approaches:
+The initial experiments will utilize a 25-shot learning paradigm. However, we will explore different values for "n" in n-shot learning to identify the optimal configuration. To establish a robust comparison, we will employ three additional training approaches:
 - Fine-tuning: Individual Attention U-Net models will be trained on data from each distinct location and then applied to the target location (Covington) to assess their transferability.
 - Joint Training: This model will be an Attention U-Net trained on samples from locations other than the target location (e.g., Covington). Subsequently, it will be fine-tuned using data from the target location.
 - MAML-Attention-Unet: This is the core focus of the study, evaluating the benefits of meta-learning in optimizing network structure for streamline delineation.
