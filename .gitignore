@@ -13,4 +13,6 @@ models/
 predicts/
 __pycache__
 pycache
-script/samples
+scripts/samples
+scripts/predicts
+scripts/models
