@@ -5,15 +5,15 @@ import numpy as np
 import datetime
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from data_util import MetaDataLoader
+from libs.data_util import MetaDataLoader
 from libs.attentionUnet import AttentionUnet
 from libs.unet import UNet
 from libs.loss import dice_coefficient, dice_loss
 
 # --- Data Loading and Preprocessing ---
 
-def load_and_preprocess_data(data_dir, num_samples_per_location, normalization_type):
-    data_loader = MetaDataLoader(data_dir, num_samples_per_location, normalization_type)
+def load_and_preprocess_data(data_dir, normalization_type):
+    data_loader = MetaDataLoader(data_dir, normalization_type)
     return data_loader
     
 # --- Meta-training ---
@@ -168,10 +168,9 @@ def evaluate_adapted_model(model, query_data, query_labels):
 # --- Main Function ---
 def main(args):
 
-
     # 1. Create data
-    data_loader = MetaDataLoader(args.data_dir, args.num_samples_per_location, args.normalization_type)
-    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.training_locations)
+    data_loader = MetaDataLoader(args.data_dir, args.normalization_type)
+    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.num_samples_per_location, args.training_locations)
     
 
     # 2. Model creation
