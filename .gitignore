@@ -6,6 +6,7 @@
 *.npy
 *.tif
 *.h5
+*.ini
 
 # Ignore Colab data files
 data/
