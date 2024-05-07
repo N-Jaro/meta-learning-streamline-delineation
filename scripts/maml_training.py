@@ -10,6 +10,72 @@ from libs.attentionUnet import AttentionUnet
 from libs.unet import UNet
 from libs.loss import dice_coefficient, dice_loss
 
+# --- Argument Parsing ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
+    parser.add_argument('--data_dir', type=str, default='../samples/', help='Path to data directory')
+    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'attentionUnet'], help='Model architecture')
+    parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
+    parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
+    parser.add_argument('--training_locations', nargs='+', default=['Alexander', 'Rowancreek'], help='Locations for meta-training')
+    parser.add_argument('--test_locations', nargs='+', default=['Covingtion'], help='Locations for meta-testing')
+    parser.add_argument('--num_episodes', type=int, default=10, help='Number of episodes')
+
+    # MAML hyperparameters
+    parser.add_argument('--meta_lr', type=float, default=0.001, help='Meta learning rate')
+    parser.add_argument('--inner_lr', type=float, default=0.001, help='Inner loop learning rate')
+    parser.add_argument('--decay_steps', type=int, default=1000, help='Learning rate decay steps')
+    parser.add_argument('--decay_rate', type=float, default=0.96, help='Learning rate decay rate')
+    parser.add_argument('--meta_batch_size', type=int, default=1, help='Meta batch size')
+    parser.add_argument('--inner_steps', type=int, default=1, help='Number of inner loop steps')
+    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
+    parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
+
+    args = parser.parse_args()
+    main(args)
+
+
+# --- Main Function ---
+def main(args):
+
+    # 1. Create data
+    data_loader = MetaDataLoader(args.data_dir, args.normalization_type)
+    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.num_samples_per_location, args.training_locations)
+
+    # 2. Model creation
+    if args.model == "unet":
+        model_creator = UNet(input_shape=(224, 224, 8), num_classes=1)
+    elif args.model == "attentionUnet":
+        model_creator = AttentionUnet(input_shape=(224, 224, 8), output_mask_channels=1)
+    else:
+        raise ValueError(f"Unsupported model type: {args.model}")
+
+    model = model_creator.build_model()
+    # model.summary()
+
+    # 3. Meta-training
+    maml_model, name = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
+                                        initial_inner_lr=args.inner_lr, decay_steps=args.decay_steps,
+                                        decay_rate=args.decay_rate, meta_batch_size=args.meta_batch_size,
+                                        inner_steps=args.inner_steps, epochs=args.epochs, patience=args.patience,
+                                        save_path=args.save_path)
+
+    print("the best MAML model saved at:", 'models/'+name)
+
+    # 4. Adaptation phase 
+    meta_test_episodes = data_loader.create_multi_episodes(args.num_episodes, args.testing_locations)
+
+    for test_episode in meta_test_episodes:
+        adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=0.001, inner_steps=400)
+        test_loss = evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
+        print(f"Test Loss after adaptation: {test_loss}")
+
+    adapted_model.save('models/'+name+'/adapted_covington')  # Save the best model
+    print("Adapted model saved at:", 'models/'+name+'/adapted_covington')
+
+
+
 # --- Data Loading and Preprocessing ---
 
 def load_and_preprocess_data(data_dir, normalization_type):
@@ -165,70 +231,6 @@ def evaluate_adapted_model(model, query_data, query_labels):
     loss = dice_loss(query_labels, predictions)
     return loss.numpy()
 
-# --- Main Function ---
-def main(args):
-
-    # 1. Create data
-    data_loader = MetaDataLoader(args.data_dir, args.normalization_type)
-    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.num_samples_per_location, args.training_locations)
-    
-
-    # 2. Model creation
-    if args.model == "unet":
-        model_creator = UNet(input_shape=(224, 224, 8), num_classes=1)
-    elif args.model == "attentionUnet":
-        model_creator = AttentionUnet(input_shape=(224, 224, 8), output_mask_channels=1)
-    else:
-        raise ValueError(f"Unsupported model type: {args.model}")
-
-    model = model_creator.build_model()
-    model.summary()
-
-    # 3. Meta-training
-    maml_model, name = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
-                                        initial_inner_lr=args.inner_lr, decay_steps=args.decay_steps,
-                                        decay_rate=args.decay_rate, meta_batch_size=args.meta_batch_size,
-                                        inner_steps=args.inner_steps, epochs=args.epochs, patience=args.patience,
-                                        save_path=args.save_path)
-
-    maml_model.save('models/'+name)
-    print("MAML model saved at:", 'models/'+name)
-
-    # 4. Adaptation phase 
-    meta_test_episodes = data_loader.create_multi_episodes(args.num_episodes, args.testing_locations)
-
-    for test_episode in meta_test_episodes:
-        adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=0.001, inner_steps=400)
-        test_loss = evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
-        print(f"Test Loss after adaptation: {test_loss}")
-
-    adapted_model.save('models/'+name+'/adapted_covington')  # Save the best model
-    print("Adapted model saved at:", 'models/'+name+'/adapted_covington')
-
-# --- Argument Parsing ---
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
-    parser.add_argument('--data_dir', type=str, default='./samples/', help='Path to data directory')
-    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'attentionUnet'], help='Model architecture')
-    parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
-    parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
-    parser.add_argument('--training_locations', nargs='+', default=['Alexander', 'Rowancreek'], help='Locations for meta-training')
-    parser.add_argument('--test_locations', nargs='+', default=['Covingtion'], help='Locations for meta-testing')
-    parser.add_argument('--num_episodes', type=int, default=10, help='Number of episodes')
-
-    # MAML hyperparameters
-    parser.add_argument('--meta_lr', type=float, default=0.001, help='Meta learning rate')
-    parser.add_argument('--inner_lr', type=float, default=0.001, help='Inner loop learning rate')
-    parser.add_argument('--decay_steps', type=int, default=1000, help='Learning rate decay steps')
-    parser.add_argument('--decay_rate', type=float, default=0.96, help='Learning rate decay rate')
-    parser.add_argument('--meta_batch_size', type=int, default=1, help='Meta batch size')
-    parser.add_argument('--inner_steps', type=int, default=1, help='Number of inner loop steps')
-    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
-
-    args = parser.parse_args()
-    main(args)
 
 
 
