@@ -35,6 +35,7 @@ def save_samples(samples, output_file):
 def main(num_train_samples, num_val_samples, tif_path, patch_size, output_dir):
     with rasterio.open(tif_path) as src:
         array = src.read(1)
+        print("width:", array.width, "height:", array.height)
 
     train_samples = generate_samples(num_train_samples, array, patch_size)
     if len(train_samples) < num_train_samples:
