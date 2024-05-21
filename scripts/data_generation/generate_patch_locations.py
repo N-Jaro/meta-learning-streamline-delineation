@@ -1,86 +1,78 @@
-import argparse
 import os
-import random
+import sys
+import argparse
 import rasterio
 import numpy as np
 from rtree import index
 
-def read_tif(file_path):
-    with rasterio.open(file_path) as src:
-        return src.read(1)
+def create_patch_locations(num_samples, patch_size, tif_data, tries_limit, num_stream_pixels):
+    patches = []
+    num_tries = 0
+    while len(patches) < num_samples and num_tries < tries_limit:
+        min_row = np.random.randint(0, tif_data.shape[0] - patch_size)
+        min_col = np.random.randint(0, tif_data.shape[1] - patch_size)
+        patch = tif_data[min_row:min_row + patch_size, min_col:min_col + patch_size]
+        if np.sum(patch) >= num_stream_pixels:
+            patches.append((min_row, min_col))
+        num_tries += 1
+    return patches
 
-def is_valid_patch(array, min_row, min_col, patch_size, min_ones=50):
-    patch = array[min_row:min_row + patch_size, min_col:min_col + patch_size]
-    return np.sum(patch == 1) >= min_ones
+def generate_locations(args):
+    with rasterio.open(args.tif_path) as src:
+        tif_data = src.read(1)
 
-def generate_patches(array, num_samples, patch_size):
-    rows, cols = array.shape
-    samples = []
-    
-    while len(samples) < num_samples:
-        min_row = random.randint(0, rows - patch_size)
-        min_col = random.randint(0, cols - patch_size)
-        
-        if is_valid_patch(array, min_row, min_col, patch_size):
-            samples.append((min_row, min_col))
-    
-    return samples
+    tries_limit = args.num_train_samples * 100
+    training_patches = create_patch_locations(args.num_train_samples, args.patch_size, tif_data, tries_limit, args.num_strem_px)
 
-def save_samples(samples, output_file):
-    with open(output_file, 'w') as f:
-        for min_row, min_col in samples:
+    if len(training_patches) < args.num_train_samples:
+        print("Not enough training samples could be generated.")
+        return
+
+    idx = index.Index()
+    for i, (min_row, min_col) in enumerate(training_patches):
+        idx.insert(i, (min_col, min_row, min_col + args.patch_size, min_row + args.patch_size))
+
+    validation_patches = []
+    num_tries = 0
+    while len(validation_patches) < args.num_val_samples and num_tries < tries_limit:
+        min_row = np.random.randint(0, tif_data.shape[0] - args.patch_size)
+        min_col = np.random.randint(0, tif_data.shape[1] - args.patch_size)
+        patch_bounds = (min_col, min_row, min_col + args.patch_size, min_row + args.patch_size)
+        if list(idx.intersection(patch_bounds)):
+            num_tries += 1
+            continue
+        patch = tif_data[min_row:min_row + args.patch_size, min_col:min_col + args.patch_size]
+        if np.sum(patch) >= 50:
+            validation_patches.append((min_row, min_col))
+            idx.insert(len(training_patches) + len(validation_patches), patch_bounds)
+        num_tries += 1
+
+    if len(validation_patches) < args.num_val_samples:
+        print("Not enough validation samples could be generated.")
+        return
+
+    training_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_training_{args.patch_size}.txt")
+    validation_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_validation_{args.patch_size}.txt")
+
+    with open(training_file, 'w') as f:
+        for min_row, min_col in training_patches:
             f.write(f"{min_row},{min_col}\n")
 
-def create_rtree(samples, patch_size):
-    idx = index.Index()
-    for i, (min_row, min_col) in enumerate(samples):
-        idx.insert(i, (min_col, min_row, min_col + patch_size, min_row + patch_size))
-    return idx
+    with open(validation_file, 'w') as f:
+        for min_row, min_col in validation_patches:
+            f.write(f"{min_row},{min_col}\n")
 
-def generate_validation_patches(array, num_samples, patch_size, train_rtree):
-    rows, cols = array.shape
-    samples = []
-    
-    while len(samples) < num_samples:
-        min_row = random.randint(0, rows - patch_size)
-        min_col = random.randint(0, cols - patch_size)
-        
-        if is_valid_patch(array, min_row, min_col, patch_size):
-            rect = (min_col, min_row, min_col + patch_size, min_row + patch_size)
-            if not list(train_rtree.intersection(rect)):
-                samples.append((min_row, min_col))
-    
-    return samples
-
-def main(num_train, num_val, tif_path, patch_size, output_path):
-    array = read_tif(tif_path)
-    
-    train_samples = generate_patches(array, num_train, patch_size)
-    if len(train_samples) < num_train:
-        print("Not enough training samples available.")
-        return
-    
-    train_rtree = create_rtree(train_samples, patch_size)
-    val_samples = generate_validation_patches(array, num_val, patch_size, train_rtree)
-    if len(val_samples) < num_val:
-        print("Not enough validation samples available.")
-        return
-    
-    base_name = os.path.basename(tif_path).replace('.tif', '')
-    train_output_file = os.path.join(output_path, f"{base_name}_train_{patch_size}.txt")
-    val_output_file = os.path.join(output_path, f"{base_name}_val_{patch_size}.txt")
-    
-    save_samples(train_samples, train_output_file)
-    save_samples(val_samples, val_output_file)
-    print(f"Training and validation sample locations saved to {output_path}")
+    print(f"Training samples saved to {training_file}")
+    print(f"Validation samples saved to {validation_file}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Generate patch locations for training and validation data.")
-    parser.add_argument('num_train', type=int, help="Number of training samples")
-    parser.add_argument('num_val', type=int, help="Number of validation samples")
-    parser.add_argument('tif_path', type=str, help="Path to the input TIFF file")
-    parser.add_argument('patch_size', type=int, help="Size of the patch (used for both width and height)")
-    parser.add_argument('output_path', type=str, help="Path to the output directory")
+    parser = argparse.ArgumentParser(description="Generate patch locations for training and validation datasets.")
+    parser.add_argument("--num_train_samples", type=int, default=100, required=True, help="Number of training samples")
+    parser.add_argument("--num_val_samples", type=int, default=50, required=True, help="Number of validation samples")
+    parser.add_argument("--num_strem_px", type=int, default=50, required=True, help="Number of validation samples")
+    parser.add_argument("--tif_path", type=str, default="/u/nathanj/projects/nathanj/TIFF_data/Alaska/19050302_50/AK_50_Filtered_Reference/190503021001_filtered_reference.tif", required=True, help="Path to the TIFF file")
+    parser.add_argument("--patch_size", type=int, default=224, help="Size of the patch (default: 224)")
+    parser.add_argument("--output_dir", type=str, default="./", required=True, help="Output directory for the text files")
     
     args = parser.parse_args()
-    main(args.num_train, args.num_val, args.tif_path, args.patch_size, args.output_path)
+    generate_locations(args)
