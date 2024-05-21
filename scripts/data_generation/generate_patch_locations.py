@@ -5,74 +5,83 @@ import rasterio
 import numpy as np
 from rtree import index
 
-def create_patch_locations(num_samples, patch_size, tif_data, tries_limit, num_stream_pixels):
-    patches = []
-    num_tries = 0
-    while len(patches) < num_samples and num_tries < tries_limit:
-        min_row = np.random.randint(0, tif_data.shape[0] - patch_size)
-        min_col = np.random.randint(0, tif_data.shape[1] - patch_size)
-        patch = tif_data[min_row:min_row + patch_size, min_col:min_col + patch_size]
-        if np.sum(patch) >= num_stream_pixels:
-            patches.append((min_row, min_col))
-        num_tries += 1
-    return patches
+def create_grid_patches(tif_data, patch_size):
+    """
+    Create patches in a grid pattern over the image and filter out invalid patches.
+    A valid patch contains only pixels of 0 or 1 and no NaN values.
+    
+    Parameters:
+    tif_data (numpy array): The array representation of the TIFF file.
+    patch_size (int): The size of the patches to be created.
+
+    Returns:
+    List of tuples: A list of valid patch coordinates (min_row, min_col).
+    """
+    valid_patches = []
+    n_rows, n_cols = tif_data.shape
+    for min_row in range(0, n_rows - patch_size + 1, patch_size):
+        for min_col in range(0, n_cols - patch_size + 1, patch_size):
+            patch = tif_data[min_row:min_row + patch_size, min_col:min_col + patch_size]
+            if np.all((patch == 0) | (patch == 1)) and not np.any(np.isnan(patch)):
+                valid_patches.append((min_row, min_col))
+    return valid_patches
 
 def generate_locations(args):
+    """
+    Generate patch locations for training and validation datasets from a TIFF file.
+    The patches are created in a grid pattern and split into training (70%) and validation (30%) sets.
+
+    Parameters:
+    args (argparse.Namespace): The command-line arguments parsed by argparse.
+    """
+    # Read the TIFF file
     with rasterio.open(args.tif_path) as src:
         tif_data = src.read(1)
 
-    tries_limit = args.num_train_samples * 100
-    training_patches = create_patch_locations(args.num_train_samples, args.patch_size, tif_data, tries_limit, args.num_strem_px)
-
-    if len(training_patches) < args.num_train_samples:
-        print("Not enough training samples could be generated.")
+    # Create valid patches in a grid pattern
+    patch_size = args.patch_size
+    valid_patches = create_grid_patches(tif_data, patch_size)
+    num_samples = len(valid_patches)
+    
+    # Check if there are enough valid patches
+    if num_samples == 0:
+        print("No valid patches found.")
         return
 
-    idx = index.Index()
-    for i, (min_row, min_col) in enumerate(training_patches):
-        idx.insert(i, (min_col, min_row, min_col + args.patch_size, min_row + args.patch_size))
+    # Shuffle and split patches into training (70%) and validation (30%) sets
+    np.random.shuffle(valid_patches)
+    num_train_samples = int(0.7 * num_samples)
+    num_val_samples = num_samples - num_train_samples
+    training_patches = valid_patches[:num_train_samples]
+    validation_patches = valid_patches[num_train_samples:]
 
-    validation_patches = []
-    num_tries = 0
-    while len(validation_patches) < args.num_val_samples and num_tries < tries_limit:
-        min_row = np.random.randint(0, tif_data.shape[0] - args.patch_size)
-        min_col = np.random.randint(0, tif_data.shape[1] - args.patch_size)
-        patch_bounds = (min_col, min_row, min_col + args.patch_size, min_row + args.patch_size)
-        if list(idx.intersection(patch_bounds)):
-            num_tries += 1
-            continue
-        patch = tif_data[min_row:min_row + args.patch_size, min_col:min_col + args.patch_size]
-        if np.sum(patch) >= 50:
-            validation_patches.append((min_row, min_col))
-            idx.insert(len(training_patches) + len(validation_patches), patch_bounds)
-        num_tries += 1
+    # Output file paths
+    training_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_training_{patch_size}.txt")
+    validation_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_validation_{patch_size}.txt")
 
-    if len(validation_patches) < args.num_val_samples:
-        print("Not enough validation samples could be generated.")
-        return
-
-    training_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_training_{args.patch_size}.txt")
-    validation_file = os.path.join(args.output_dir, f"{os.path.splitext(os.path.basename(args.tif_path))[0]}_validation_{args.patch_size}.txt")
-
+    # Write training patch coordinates to file
     with open(training_file, 'w') as f:
         for min_row, min_col in training_patches:
             f.write(f"{min_row},{min_col}\n")
 
+    # Write validation patch coordinates to file
     with open(validation_file, 'w') as f:
         for min_row, min_col in validation_patches:
             f.write(f"{min_row},{min_col}\n")
 
+    # Print the number of training and validation patches
+    print(f"Training samples: {num_train_samples}")
+    print(f"Validation samples: {num_val_samples}")
     print(f"Training samples saved to {training_file}")
     print(f"Validation samples saved to {validation_file}")
 
 if __name__ == "__main__":
+    # Argument parser setup
     parser = argparse.ArgumentParser(description="Generate patch locations for training and validation datasets.")
-    parser.add_argument("--num_train_samples", type=int, default=100, required=True, help="Number of training samples")
-    parser.add_argument("--num_val_samples", type=int, default=50, required=True, help="Number of validation samples")
-    parser.add_argument("--num_strem_px", type=int, default=50, required=True, help="Number of validation samples")
-    parser.add_argument("--tif_path", type=str, default="/u/nathanj/projects/nathanj/TIFF_data/Alaska/19050302_50/AK_50_Filtered_Reference/190503021001_filtered_reference.tif", required=True, help="Path to the TIFF file")
+    parser.add_argument("--tif_path", type=str, required=True, help="Path to the TIFF file")
     parser.add_argument("--patch_size", type=int, default=224, help="Size of the patch (default: 224)")
-    parser.add_argument("--output_dir", type=str, default="./", required=True, help="Output directory for the text files")
+    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for the text files")
     
+    # Parse arguments and generate locations
     args = parser.parse_args()
     generate_locations(args)
