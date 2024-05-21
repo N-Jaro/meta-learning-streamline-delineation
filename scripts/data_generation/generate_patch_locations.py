@@ -39,13 +39,13 @@ def main(num_train_samples, num_val_samples, tif_path, patch_size, output_dir):
 
     train_samples = generate_samples(num_train_samples, array, patch_size)
     if len(train_samples) < num_train_samples:
-        print("Not enough valid training samples found.")
+        print(f"Not enough valid training samples found. Only found {len(train_samples)} samples")
         return
 
     existing_samples = set(train_samples)
     val_samples = generate_samples(num_val_samples, array, patch_size, existing_samples)
     if len(val_samples) < num_val_samples:
-        print("Not enough valid validation samples found.")
+        print(f"Not enough valid validation samples found. Only found {len(val_samples)} samples")
         return
 
     tif_name = os.path.splitext(os.path.basename(tif_path))[0]
