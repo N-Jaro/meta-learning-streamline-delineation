@@ -10,6 +10,7 @@ def generate_samples(tif_path, num_train_samples, num_val_samples, patch_size, o
     with rasterio.open(tif_path) as src:
         array = src.read(1)  # Read the first band
         rows, cols = array.shape
+        print("Image Size:", rows, cols)
 
     def is_valid_patch(array, min_row, min_col, patch_size_w, patch_size_h):
         patch = array[min_row:min_row + patch_size_w, min_col:min_col + patch_size_h]
