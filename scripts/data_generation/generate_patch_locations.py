@@ -1,72 +1,70 @@
 import os
 import random
-import numpy as np
 import rasterio
+import numpy as np
 from rtree import index
 
-# example usage: 
-# python generate_patch_locations.py 1000 200 path/to/tiff/file.tif 224 output/directory
+def generate_samples(tif_path, num_train_samples, num_val_samples, patch_size, output_dir):
+    patch_size_w, patch_size_h = patch_size, patch_size
 
-def generate_patch_locations(num_samples, tiff_data, patch_size, min_pixels=50):
-    rows, cols = tiff_data.shape
-    patch_locations = []
-    
-    while len(patch_locations) < num_samples:
-        min_row = random.randint(0, rows - patch_size)
-        min_col = random.randint(0, cols - patch_size)
-        patch = tiff_data[min_row:min_row + patch_size, min_col:min_col + patch_size]
+    with rasterio.open(tif_path) as src:
+        array = src.read(1)  # Read the first band
+        rows, cols = array.shape
+
+    def is_valid_patch(array, min_row, min_col, patch_size_w, patch_size_h):
+        patch = array[min_row:min_row + patch_size_w, min_col:min_col + patch_size_h]
+        return np.sum(patch == 1) >= 50  # At least 50 pixels of 1
+
+    def generate_patch_locations(num_samples, exclude_idx, array, patch_size_w, patch_size_h):
+        num_attemps = 30000
+        locations = []
+        idx = index.Index()
         
-        if np.sum(patch == 1) >= min_pixels:
-            patch_locations.append((min_row, min_col))
-    
-    return patch_locations
+        for i in range(num_samples):
+            attempts = 0
+            while attempts < num_attemps:  # Limit number of attempts to avoid infinite loop
+                min_row = random.randint(0, rows - patch_size_w)
+                min_col = random.randint(0, cols - patch_size_h)
+                if is_valid_patch(array, min_row, min_col, patch_size_w, patch_size_h):
+                    bbox = (min_col, min_row, min_col + patch_size_w, min_row + patch_size_h)
+                    if not list(idx.intersection(bbox)) and (not exclude_idx or not list(exclude_idx.intersection(bbox))):
+                        locations.append((min_row, min_col))
+                        idx.insert(i, bbox)
+                        break
+                attempts += 1
+            if attempts == num_attemps:
+                return None, False
+        return locations, True
 
-def check_overlap(patch_locations, patch_size, idx):
-    for min_row, min_col in patch_locations:
-        if list(idx.intersection((min_row, min_col, min_row + patch_size, min_col + patch_size))):
-            return True
-    return False
+    train_locations, train_success = generate_patch_locations(num_train_samples, None, array, patch_size_w, patch_size_h)
+    if not train_success:
+        print("Not enough valid training samples could be generated.")
+        return
 
-def write_locations_to_file(locations, output_file):
-    with open(output_file, 'w') as f:
-        for loc in locations:
-            f.write(f"{loc[0]},{loc[1]}\n")
-
-def main(num_train_samples, num_val_samples, tiff_path, patch_size, output_dir):
-    with rasterio.open(tiff_path) as src:
-        tiff_data = src.read(1)
-    
-    train_locations = generate_patch_locations(num_train_samples, tiff_data, patch_size)
-    
-    idx = index.Index()
+    train_idx = index.Index()
     for i, (min_row, min_col) in enumerate(train_locations):
-        idx.insert(i, (min_row, min_col, min_row + patch_size, min_col + patch_size))
-    
-    val_locations = []
-    while len(val_locations) < num_val_samples:
-        potential_loc = generate_patch_locations(1, tiff_data, patch_size)[0]
-        if not check_overlap([potential_loc], patch_size, idx):
-            val_locations.append(potential_loc)
-            idx.insert(len(train_locations) + len(val_locations) - 1, 
-                        (potential_loc[0], potential_loc[1], potential_loc[0] + patch_size, potential_loc[1] + patch_size))
-    
-    tiff_name = os.path.splitext(os.path.basename(tiff_path))[0]
-    train_output_file = os.path.join(output_dir, f"{tiff_name}_training_{patch_size}.txt")
-    val_output_file = os.path.join(output_dir, f"{tiff_name}_validation_{patch_size}.txt")
-    
-    write_locations_to_file(train_locations, train_output_file)
-    write_locations_to_file(val_locations, val_output_file)
+        bbox = (min_col, min_row, min_col + patch_size_w, min_row + patch_size_h)
+        train_idx.insert(i, bbox)
 
-if __name__ == "__main__":
-    import argparse
+    val_locations, val_success = generate_patch_locations(num_val_samples, train_idx, array, patch_size_w, patch_size_h)
+    if not val_success:
+        print("Not enough valid validation samples could be generated.")
+        return
 
-    parser = argparse.ArgumentParser(description="Generate patch locations for training and validation.")
-    parser.add_argument('num_train_samples', type=int, help="Number of training samples")
-    parser.add_argument('num_val_samples', type=int, help="Number of validation samples")
-    parser.add_argument('tiff_path', type=str, help="Path to the TIF file")
-    parser.add_argument('patch_size', type=int, help="Patch size (used for both width and height)")
-    parser.add_argument('output_dir', type=str, help="Output directory for the text files")
+    tif_name = os.path.splitext(os.path.basename(tif_path))[0]
     
-    args = parser.parse_args()
-    
-    main(args.num_train_samples, args.num_val_samples, args.tiff_path, args.patch_size, args.output_dir)
+    train_output_path = os.path.join(output_dir, f"{tif_name}_train_{patch_size_w}x{patch_size_h}.txt")
+    val_output_path = os.path.join(output_dir, f"{tif_name}_val_{patch_size_w}x{patch_size_h}.txt")
+
+    def save_locations(file_path, locations):
+        with open(file_path, 'w') as file:
+            for min_row, min_col in locations:
+                file.write(f"{min_row},{min_col}\n")
+
+    save_locations(train_output_path, train_locations)
+    save_locations(val_output_path, val_locations)
+    print(f"Training samples saved to: {train_output_path}")
+    print(f"Validation samples saved to: {val_output_path}")
+
+# Example usage:
+# generate_samples('path/to/tif_file.tif', 100, 20, 224, 'output/directory')
