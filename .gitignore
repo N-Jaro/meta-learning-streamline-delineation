@@ -20,3 +20,4 @@ pycache
 scripts/samples
 scripts/predicts
 scripts/models
+scripts/wandb
