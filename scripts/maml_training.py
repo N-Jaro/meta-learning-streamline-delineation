@@ -5,76 +5,11 @@ import numpy as np
 import datetime
 import tensorflow as tf
 import matplotlib.pyplot as plt
-from libs.data_util import MetaDataLoader
+from libs.metaDAtaloader import MetaDataLoader
 from libs.attentionUnet import AttentionUnet
-from libs.unet import UNet
+from libs.unet import SimpleUNet
 from libs.loss import dice_coefficient, dice_loss
-
-# --- Argument Parsing ---
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
-    parser.add_argument('--data_dir', type=str, default='../samples/', help='Path to data directory')
-    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'attentionUnet'], help='Model architecture')
-    parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
-    parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
-    parser.add_argument('--training_locations', nargs='+', default=['Alexander', 'Rowancreek'], help='Locations for meta-training')
-    parser.add_argument('--test_locations', nargs='+', default=['Covingtion'], help='Locations for meta-testing')
-    parser.add_argument('--num_episodes', type=int, default=10, help='Number of episodes')
-
-    # MAML hyperparameters
-    parser.add_argument('--meta_lr', type=float, default=0.001, help='Meta learning rate')
-    parser.add_argument('--inner_lr', type=float, default=0.001, help='Inner loop learning rate')
-    parser.add_argument('--decay_steps', type=int, default=1000, help='Learning rate decay steps')
-    parser.add_argument('--decay_rate', type=float, default=0.96, help='Learning rate decay rate')
-    parser.add_argument('--meta_batch_size', type=int, default=1, help='Meta batch size')
-    parser.add_argument('--inner_steps', type=int, default=1, help='Number of inner loop steps')
-    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
-    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
-
-    args = parser.parse_args()
-    main(args)
-
-
-# --- Main Function ---
-def main(args):
-
-    # 1. Create data
-    data_loader = MetaDataLoader(args.data_dir, args.normalization_type)
-    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.num_samples_per_location, args.training_locations)
-
-    # 2. Model creation
-    if args.model == "unet":
-        model_creator = UNet(input_shape=(224, 224, 8), num_classes=1)
-    elif args.model == "attentionUnet":
-        model_creator = AttentionUnet(input_shape=(224, 224, 8), output_mask_channels=1)
-    else:
-        raise ValueError(f"Unsupported model type: {args.model}")
-
-    model = model_creator.build_model()
-    # model.summary()
-
-    # 3. Meta-training
-    maml_model, name = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
-                                        initial_inner_lr=args.inner_lr, decay_steps=args.decay_steps,
-                                        decay_rate=args.decay_rate, meta_batch_size=args.meta_batch_size,
-                                        inner_steps=args.inner_steps, epochs=args.epochs, patience=args.patience,
-                                        save_path=args.save_path)
-
-    print("the best MAML model saved at:", 'models/'+name)
-
-    # 4. Adaptation phase 
-    meta_test_episodes = data_loader.create_multi_episodes(args.num_episodes, args.testing_locations)
-
-    for test_episode in meta_test_episodes:
-        adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=0.001, inner_steps=400)
-        test_loss = evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
-        print(f"Test Loss after adaptation: {test_loss}")
-
-    adapted_model.save('models/'+name+'/adapted_covington')  # Save the best model
-    print("Adapted model saved at:", 'models/'+name+'/adapted_covington')
-
-
+from adapt_model import adapt_to_new_task, evaluate_adapted_model
 
 # --- Data Loading and Preprocessing ---
 
@@ -96,8 +31,10 @@ def train_task_model(model, inputs, outputs, optimizer):
 def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.001, decay_steps=1000, decay_rate=0.96, meta_batch_size=1, inner_steps=1, epochs=500, patience=15, save_path='models'):
 
     date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = f'maml_{inner_steps}_{epochs}_{meta_batch_size}_{date_time}_best_model'
+    name = f'maml_{inner_steps}_{epochs}_{meta_batch_size}_{date_time}'
     model_path = os.path.join(save_path, name)
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
     print(f'Initialize the Training process: {name}')
 
     # Initialize WandB
@@ -195,7 +132,7 @@ def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.0
         if mean_loss < best_loss:
             best_loss = mean_loss
             no_improvement_count = 0
-            base_model.save(model_path)  # Save the best model
+            base_model.save(model_path+'/maml_model.keras')  # Save the best model
             print(f"Saved new best model with validation loss: {best_loss}")
 
         else:
@@ -207,30 +144,73 @@ def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.0
         print(f"Epoch {epoch + 1} completed, Mean Validation Loss across all episodes: {mean_loss}")
 
     wandb.finish()
-    return base_model, name
+    return base_model, model_path
 
-# ---  Task Adaptation ---
 
-def adapt_to_new_task(base_model, support_data, support_labels, inner_lr=0.001, inner_steps=1):
-    model_copy = tf.keras.models.clone_model(base_model)
-    model_copy.set_weights(base_model.get_weights())
+# --- Argument Parsing ---
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
+    parser.add_argument('--data_dir', type=str, default='../samples/', help='Path to data directory')
+    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'attentionUnet'], help='Model architecture')
+    parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
+    parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
+    parser.add_argument('--training_locations', nargs='+', default=['Alexander', 'Rowancreek'], help='Locations for meta-training')
+    parser.add_argument('--testing_locations', nargs='+', default=['Covington'], help='Locations for meta-testing')
+    parser.add_argument('--num_episodes', type=int, default=10, help='Number of episodes')
 
-    optimizer = tf.keras.optimizers.Adam(learning_rate=inner_lr)
-    for _ in range(inner_steps):
-        with tf.GradientTape() as tape:
-            predictions = model_copy(support_data)
-            loss = dice_loss(support_labels, predictions)
-        gradients = tape.gradient(loss, model_copy.trainable_variables)
-        optimizer.apply_gradients(zip(gradients, model_copy.trainable_variables))
-    return model_copy
+    # MAML hyperparameters
+    parser.add_argument('--meta_lr', type=float, default=0.001, help='Meta learning rate')
+    parser.add_argument('--inner_lr', type=float, default=0.001, help='Inner loop learning rate')
+    parser.add_argument('--decay_steps', type=int, default=1000, help='Learning rate decay steps')
+    parser.add_argument('--decay_rate', type=float, default=0.96, help='Learning rate decay rate')
+    parser.add_argument('--meta_batch_size', type=int, default=1, help='Meta batch size')
+    parser.add_argument('--inner_steps', type=int, default=1, help='Number of inner loop steps')
+    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
+    parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
 
-# --- Evaluation ---
+    args = parser.parse_args()
 
-def evaluate_adapted_model(model, query_data, query_labels):
-    predictions = model(query_data)
-    loss = dice_loss(query_labels, predictions)
-    return loss.numpy()
+    # 1. Create data
+    data_loader = MetaDataLoader(args.data_dir, args.normalization_type)
+    meta_train_episodes = data_loader.create_multi_episodes(args.num_episodes, args.num_samples_per_location, args.training_locations)
 
+    # 2. Model creation
+    if args.model == "unet":
+        model_creator = SimpleUNet(input_shape=(224, 224, 8), num_classes=1)
+    elif args.model == "attentionUnet":
+        model_creator = AttentionUnet(input_shape=(224, 224, 8), output_mask_channels=1)
+    else:
+        raise ValueError(f"Unsupported model type: {args.model}")
+
+    model = model_creator.build_model()
+    model.summary()
+
+    # 3. Meta-training
+    maml_model, model_path = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
+                                        initial_inner_lr=args.inner_lr, decay_steps=args.decay_steps,
+                                        decay_rate=args.decay_rate, meta_batch_size=args.meta_batch_size,
+                                        inner_steps=args.inner_steps, epochs=args.epochs, patience=args.patience,
+                                        save_path=args.save_path)
+
+    print("the best MAML model saved at:", model_path)
+
+    # # Adaptation to new tasks 
+    # for test_location in args.testing_locations:
+
+    #     adapted_model_path = os.path.join(model_path, f'adapted_{test_location}.keras') 
+    #     test_episode = data_loader.create_multi_episodes(1, args.num_samples_per_location, args.testing_location)
+
+    #     # If you don't want to adapt for every test location, adjust this logic
+    #     if not os.path.exists(adapted_model_path): 
+    #         adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=args.inner_lr, inner_steps=args.inner_steps)
+    #         adapted_model.save(adapted_model_path)
+
+    #     else:
+    #         adapted_model = tf.keras.models.load_model(adapted_model_path)
+
+    #     # Evaluate the adapted model 
+    #     evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
 
 
 
