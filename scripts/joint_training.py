@@ -3,21 +3,63 @@ import argparse
 import wandb
 import datetime
 import tensorflow as tf
-from libs.data_util import JointDataLoader
+from libs.data_util import JointDataLoader 
 from libs.unet import SimpleUNet
 from libs.attentionUnet import AttentionUnet
-from libs.loss import dice_loss, dice_coefficient
+from libs.loss import dice_loss
+from wandb.integration.keras import WandbMetricsLogger
 
 # --- Data Loading and Preprocessing ---
 
-def load_data(data_dir, num_samples, mode='train'):
-    data_loader = JointDataLoader(data_dir, num_samples, mode=mode)
+def load_data(data_dir, locations, num_samples, mode='train'):
+    data_loader = JointDataLoader(data_dir, locations, num_samples, mode=mode)
     if mode == 'train':
         train_dataset, vali_dataset = data_loader.load_data()
         return train_dataset, vali_dataset
     elif mode == 'test':
         test_dataset = data_loader.load_data()
         return test_dataset
+
+def train_and_save_model(model, train_dataset, vali_dataset, model_path, epochs, patience, initial_lr, decay_steps, decay_rate, save_name, save_weights_only=True, run_id=None):
+    # Callbacks
+    callbacks = [
+        tf.keras.callbacks.EarlyStopping(patience=patience, restore_best_weights=True),
+        tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(model_path, save_name), save_best_only=True, save_weights_only=save_weights_only),
+        tf.keras.callbacks.TensorBoard(log_dir=model_path),
+        WandbMetricsLogger()
+    ]
+
+    # Compile model
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=initial_lr),
+                  loss=dice_loss,
+                  metrics=["accuracy",
+                            tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name="iou")])
+
+    # Training
+    history = model.fit(train_dataset,
+                        validation_data=vali_dataset,
+                        epochs=epochs,
+                        callbacks=callbacks)
+
+    return model
+
+def visualize_predictions(model, test_dataset, num_samples=10):
+    # Get random samples from the test dataset
+    test_data = next(iter(test_dataset.unbatch().batch(num_samples)))
+    predictions = model.predict(test_data)
+
+    fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 3))
+    for i in range(num_samples):
+        axes[i, 0].imshow(test_data[i, :, :, 0], cmap='gray')
+        axes[i, 0].set_title('Input')
+        axes[i, 1].imshow(test_labels[i, :, :, 0], cmap='gray')
+        axes[i, 1].set_title('Ground Truth')
+        axes[i, 2].imshow(predictions[i, :, :, 0], cmap='gray')
+        axes[i, 2].set_title('Prediction')
+    plt.tight_layout()
+    return fig
+
+
 
 # --- Argument Parsing ---
 
@@ -32,12 +74,43 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
     parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
+    parser.add_argument('--source_locations', nargs='+', default=['Rowancreek', 'Alexander'], help='Locations for initial training')
+    parser.add_argument('--target_location', type=str, default='Covington', help='Location for fine-tuning')
 
     args = parser.parse_args()
 
-    # 1. Load data
-    train_dataset, vali_dataset = load_data(args.data_dir, args.num_samples_per_location, mode='train')
-    # test_dataset = load_data(args.data_dir, args.num_samples_per_location, mode='test')
+    # Initialize WandB
+    date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    name = f'joint_training_{date_time}'
+    model_path = os.path.join(args.save_path, name)
+    if not os.path.exists(model_path):
+        os.makedirs(model_path)
+    print(f'Initialize the Training process: {name}')
+
+    wandb.init(project="joint_training_experiment",
+               resume="allow",
+               sync_tensorboard=True,
+               name=name,
+               config={
+                   "initial_lr": args.initial_lr,
+                   "decay_steps": args.decay_steps,
+                   "decay_rate": args.decay_rate,
+                   "epochs": args.epochs,
+                   "patience": args.patience,
+                   "model_path": model_path,
+                   "model_type": args.model,
+                   "num_sample_per_location" : args.num_samples_per_location,
+                   "source_locations" : args.source_locations,
+                   "target_location" : args.target_location
+               })
+
+    run_id = wandb.run.id  # Save the run ID
+    run_id_path = os.path.join(model_path, 'wandb_run_id.txt')
+    with open(run_id_path, 'w') as f:
+        f.write(run_id)
+
+    # 1. Load source data
+    train_dataset, vali_dataset = load_data(args.data_dir, args.source_locations, args.num_samples_per_location, mode='train')
 
     # 2. Model creation
     if args.model == "unet":
@@ -48,55 +121,38 @@ if __name__ == "__main__":
         raise ValueError(f"Unsupported model type: {args.model}")
 
     model = model_creator.build_model()
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=args.initial_lr),
-                  loss=dice_loss,
-                  metrics=[dice_coefficient, "accuracy"])
-    # model.summary()
+    model.summary()
 
-    # Initialize WandB
-    date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    name = f'joint_training_{date_time}'
-    model_path = os.path.join(args.save_path, name)
-    if not os.path.exists(model_path):
-        os.makedirs(model_path)
-    print(f'Initialize the Training process: {name}')
+    # 3. Train and save the best weights from source locations
+    model = train_and_save_model(model, train_dataset, vali_dataset, model_path, args.epochs, args.patience, args.initial_lr, args.decay_steps, args.decay_rate, 'best_source_weights.keras', save_weights_only=True)
 
-    # wandb.init(project="joint_training_experiment",
-    #            name=name,
-    #            config={
-    #                "initial_lr": args.initial_lr,
-    #                "decay_steps": args.decay_steps,
-    #                "decay_rate": args.decay_rate,
-    #                "epochs": args.epochs,
-    #                "patience": args.patience,
-    #                "model_path": model_path,
-    #                "model_type": args.model
-    #            })
+    # Finish the initial training run
+    wandb.finish()
 
-    # Callbacks
-    callbacks = [
-        tf.keras.callbacks.EarlyStopping(patience=args.patience, restore_best_weights=True),
-        tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(model_path, 'best_model'), save_best_only=True),
-        tf.keras.callbacks.TensorBoard(log_dir=model_path),
-        # wandb.keras.WandbCallback()
-    ]
+    # 4. Load target data
+    train_dataset, vali_dataset = load_data(args.data_dir, [args.target_location], args.num_samples_per_location, mode='train')
 
-    # 3. Training
-    history = model.fit(train_dataset,
-                        validation_data=vali_dataset,
-                        epochs=args.epochs,
-                        callbacks=callbacks)
+    # 5. Load the best weights
+    model.load_weights(os.path.join(model_path, 'best_source_weights.keras'))
 
-    print("The best model saved at:", model_path)
-    
-    # close wandb session
-    # wandb.finish()
+    # 6. Initialize WandB for fine-tuning and resume the previous run
+    with open(run_id_path, 'r') as f:
+        run_id = f.read().strip()
 
-    # # 4. Evaluate on test data
-    # test_loss, test_accuracy = model.evaluate(test_dataset)
-    # print(f"Test Loss: {test_loss}, Test Accuracy: {test_accuracy}")
+    wandb.init(project="joint_training_experiment",
+               resume="allow",
+               sync_tensorboard=True,
+               id=run_id,
+               name=name)
 
-    # wandb.log({
-    #     "test_loss": test_loss,
-    #     "test_accuracy": test_accuracy
-    # })
+    # 7. Fine-tune the model on target location and save the entire model
+    model = train_and_save_model(model, train_dataset, vali_dataset, model_path, args.epochs, args.patience, args.initial_lr, args.decay_steps, args.decay_rate, 'best_target_model.h5', save_weights_only=False)
+
+
+    # 8. Visualize predictions and log to WandB
+    test_dataset = load_data(args.data_dir, [args.target_location], None, mode='test')
+    fig = visualize_predictions(model, test_dataset, num_samples=10)
+    wandb.log({"predictions": wandb.Image(fig)})
+
+    # Finish the fine-tuning run
+    wandb.finish()

@@ -2,8 +2,9 @@ import os
 import numpy as np
 import argparse
 from tensorflow.keras.models import load_model
-from skimage.io import imwrite
+from skimage.io import imread, imsave
 from skimage.morphology import label, disk, binary_closing
+from skimage.util import img_as_ubyte
 from sklearn.metrics import f1_score, precision_score, recall_score, cohen_kappa_score
 from PIL import Image
 import copy
@@ -24,8 +25,8 @@ class ModelEvaluator:
         self.cleaned_image = None
 
     def _create_output_directory(self):
-        model_name = os.path.basename(os.path.dirname(self.model_path))
-        return f'predicts/{model_name}/covington_predictions/'
+        model_dir = os.path.basename(os.path.dirname(self.model_path))
+        return f'predicts/{model_dir}/'
 
     def _load_data(self):
         self.test_data = np.load(self.test_data_path)
@@ -81,8 +82,8 @@ class ModelEvaluator:
         mask = np.load(self.mask_path)
         print("image shape:", image.shape, "mask shape:", mask.shape)
         image = image * mask[:image.shape[0], :image.shape[1]]
-        binary = np.array(image > 0, dtype=np.int)
-        labeled, num_objects = label(binary)
+        binary = np.array(image > 0, dtype=int)
+        labeled = label(binary)
         object_sizes = np.bincount(labeled.ravel())
         mask = object_sizes > min_size
         cleaned = mask[labeled]
@@ -97,10 +98,13 @@ class ModelEvaluator:
         if self.clean_images_flag and self.prediction_map is not None:
             self.cleaned_image = self._clean_image(self.prediction_map, min_size, connectivity)
             output_filename = os.path.join(self.output_directory, 'reconstructed_cleaned.tif')
-            imwrite(output_filename, self.cleaned_image)
+            imsave(output_filename, img_as_ubyte(self.cleaned_image))
 
     def _clip_reference_image(self, ref_image, target_image):
         return ref_image[:target_image.shape[0], :target_image.shape[1]]
+
+    def _binarize_predictions(self, predictions, threshold=0.5):
+        return (predictions >= threshold).astype(int)
 
     def _calculate_scores(self, reference, target):
         f1_stream = f1_score(reference, target, labels=[1], average='micro')
@@ -112,16 +116,17 @@ class ModelEvaluator:
     def _evaluate(self):
         ref_image = np.load(self.ref_image_path)
         ref_image_clipped = self._clip_reference_image(ref_image, self.prediction_map)
+        binarized_prediction_map = self._binarize_predictions(self.prediction_map)
 
         print(f"Evaluating scores for reconstructed image (original):")
-        precision, recall, f1, cohen_kappa = self._calculate_scores(ref_image_clipped.flatten(), self.prediction_map.flatten())
+        precision, recall, f1, cohen_kappa = self._calculate_scores(ref_image_clipped.flatten(), binarized_prediction_map.flatten())
         print(f"Original - Precision: {precision}, Recall: {recall}, F1-Score: {f1}, Cohen Kappa: {cohen_kappa}")
 
         if self.clean_images_flag:
-            cleaned_image = self.cleaned_image
+            binarized_cleaned_image = self._binarize_predictions(self.cleaned_image)
 
             print(f"Evaluating scores for reconstructed image (cleaned):")
-            precision, recall, f1, cohen_kappa = self._calculate_scores(ref_image_clipped.flatten(), cleaned_image.flatten())
+            precision, recall, f1, cohen_kappa = self._calculate_scores(ref_image_clipped.flatten(), binarized_cleaned_image.flatten())
             print(f"Cleaned - Precision: {precision}, Recall: {recall}, F1-Score: {f1}, Cohen Kappa: {cohen_kappa}")
 
     def run_evaluation(self):
@@ -135,10 +140,10 @@ class ModelEvaluator:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluate model predictions.')
-    parser.add_argument('--test_data_path', type=str, required=True, help='Path to the test data .npy file.')
     parser.add_argument('--model_path', type=str, required=True, help='Path to the model file (e.g., models/model_name/best_model.h5).')
-    parser.add_argument('--mask_path', type=str, required=True, help='Path to the mask .npy file.')
-    parser.add_argument('--ref_image_path', type=str, required=True, help='Path to the reference image .npy file.')
+    parser.add_argument('--test_data_path', default="/u/nathanj/meta_learning/samples/Covington/bottom_half_test_data.npy", type=str, help='Path to the test data .npy file.')
+    parser.add_argument('--mask_path', default="/u/nathanj/meta_learning/samples/Covington/bottom_half_test_mask.npy", type=str, help='Path to the mask .npy file.')
+    parser.add_argument('--ref_image_path', default="/u/nathanj/meta_learning/samples/Covington/bottom_half_test_label.npy", type=str, help='Path to the reference image .npy file.')
     parser.add_argument('--clean_images', type=bool, default=True, help='Whether to clean the images or not.')
 
     args = parser.parse_args()
@@ -152,6 +157,3 @@ if __name__ == "__main__":
     )
 
     evaluator.run_evaluation()
-
-
-# python script_name.py --test_data_path path/to/test_data.npy --model_path models/model_name/best_model.h5 --mask_path path/to/mask.npy --ref_image_path path/to/ref_image.npy --clean_images True
