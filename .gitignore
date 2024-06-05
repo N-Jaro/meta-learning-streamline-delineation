@@ -12,6 +12,7 @@
 data/
 logs/
 models/
+samples/
 predicts/
 __pycache__
 pycache
