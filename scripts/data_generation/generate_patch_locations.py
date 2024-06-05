@@ -7,8 +7,7 @@ from rtree import index
 
 def preprocess_tif(tif_data):
     """Replace values greater than 200 with 1 and values less than 0 with 0."""
-    tif_data[tif_data > 200] = 1
-    tif_data[tif_data < 0] = 0
+    tif_data[tif_data != 1] = 0
     return tif_data
 
 def create_grid_patches(tif_data, patch_size):
