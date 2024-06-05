@@ -6,11 +6,13 @@
 *.npy
 *.tif
 *.h5
+*.ini
 
 # Ignore Colab data files
 data/
 logs/
 models/
+samples/
 predicts/
 __pycache__
 pycache
@@ -19,3 +21,4 @@ pycache
 scripts/samples
 scripts/predicts
 scripts/models
+scripts/wandb
