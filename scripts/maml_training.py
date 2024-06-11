@@ -12,6 +12,14 @@ from libs.loss import dice_coefficient, dice_loss
 from adapt_model import adapt_to_new_task, evaluate_adapted_model
 
 # --- Data Loading and Preprocessing ---
+def load_test_data(data_dir, locations, num_samples, mode='test', batch_size=32, normalization_type="none"):
+    data_loader = JointDataLoader(data_dir, locations, num_samples, mode=mode, batch_size=batch_size, normalization_type=normalization_type)
+    if mode == 'train':
+        train_dataset, vali_dataset = data_loader.load_data()
+        return train_dataset, vali_dataset
+    elif mode == 'test':
+        test_dataset = data_loader.load_data()
+        return test_dataset
 
 def load_and_preprocess_data(data_dir, normalization_type):
     data_loader = MetaDataLoader(data_dir, normalization_type)
@@ -195,22 +203,22 @@ if __name__ == "__main__":
 
     print("the best MAML model saved at:", model_path)
 
-    # # Adaptation to new tasks 
-    # for test_location in args.testing_locations:
+    # Adaptation to new tasks 
+    for test_location in args.testing_locations:
 
-    #     adapted_model_path = os.path.join(model_path, f'adapted_{test_location}.keras') 
-    #     test_episode = data_loader.create_multi_episodes(1, args.num_samples_per_location, args.testing_location)
+        adapted_model_path = os.path.join(model_path, f'adapted_{test_location}.h5') 
+        test_episode = data_loader.create_multi_episodes(1, args.num_samples_per_location, args.testing_location)
 
-    #     # If you don't want to adapt for every test location, adjust this logic
-    #     if not os.path.exists(adapted_model_path): 
-    #         adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=args.inner_lr, inner_steps=args.inner_steps)
-    #         adapted_model.save(adapted_model_path)
+        # If you don't want to adapt for every test location, adjust this logic
+        if not os.path.exists(adapted_model_path): 
+            adapted_model = adapt_to_new_task(maml_model, test_episode["support_set_data"], test_episode["support_set_labels"], inner_lr=args.inner_lr, inner_steps=args.inner_steps)
+            adapted_model.save(adapted_model_path)
 
-    #     else:
-    #         adapted_model = tf.keras.models.load_model(adapted_model_path)
+        else:
+            adapted_model = tf.keras.models.load_model(adapted_model_path)
 
-    #     # Evaluate the adapted model 
-    #     evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
+        # Evaluate the adapted model 
+        evaluate_adapted_model(adapted_model, test_episode["query_set_data"], test_episode["query_set_labels"])
 
 
 

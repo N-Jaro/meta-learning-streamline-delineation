@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
 import random
 
 class MetaDataLoader:
@@ -96,7 +97,7 @@ class MetaDataLoader:
 
 
 class JointDataLoader:
-    def __init__(self, data_path, locations, num_samples=None, mode='train', batch_size=32):
+    def __init__(self, data_path, locations, num_samples=None, mode='train', batch_size=32, normalization_type='-1'):
         """
         Initialize the JointDataLoader with the path to data, the locations, the number of samples to load for training,
         the mode (train or test), and the batch size.
@@ -113,7 +114,23 @@ class JointDataLoader:
         self.num_samples = num_samples
         self.mode = mode
         self.batch_size = batch_size
+        self.normalization_type = normalization_type
         self.vali_samples = int(0.3 * num_samples) if num_samples is not None else None  # 30% of training samples for validation
+
+    def normalize_data(self, data):
+        """Normalizes data based on the specified normalization type."""
+        if self.normalization_type == '0':
+            data_min = 0
+            data_max = 255
+            return (data - data_min) / (data_max - data_min)
+        elif self.normalization_type == '-1':
+            data_min = 0
+            data_max = 255
+            return 2 * ((data - data_min) / (data_max - data_min)) - 1
+        elif self.normalization_type == 'none':
+            return data
+        else:
+            raise ValueError("Unsupported normalization type by choosing the lower limit between '0' or '-1'.")
 
     def load_data(self):
         """
@@ -153,6 +170,8 @@ class JointDataLoader:
             label_path = os.path.join(self.data_path, loc, f'{data_type}_label.npy')
             
             data_array = np.load(data_path)
+            # Normalize data
+            data_array = self.normalize_data(data_array) 
             label_array = np.load(label_path)
             
             if num_samples is not None:
@@ -162,7 +181,7 @@ class JointDataLoader:
             
             data.append(data_array)
             labels.append(label_array)
-        
+
         data = np.concatenate(data, axis=0)
         labels = np.concatenate(labels, axis=0)
 
@@ -171,11 +190,12 @@ class JointDataLoader:
         
         return data, labels
 
-    def _load_test_data(self, locations, num_samples):
+    def _load_test_data(self, locations, num_samples=None):
         """
         Load the test data from the specified locations.
-        
+
         :param locations: list of str, locations to load test data from
+        :param num_samples: int or None, number of samples to load from each location if not None
         :return: tuple of np.array (test_data, test_labels)
         """
         data = []
@@ -183,16 +203,22 @@ class JointDataLoader:
 
         for loc in locations:
             data_path = os.path.join(self.data_path, loc, 'bottom_half_test_data.npy')
-            label_path = os.path.join(self.data_path, loc, 'bottom_half_test_label.npy')
+            label_path = os.path.join(self.data_path, loc, 'bottom_half_test_label_patches.npy')
             
             data_array = np.load(data_path)
+            # Normalize data
+            datdata_arraya = self.normalize_data(data_array)
             label_array = np.load(label_path)
 
             if num_samples is not None:
-                indices = random.sample(range(data_array.shape[0]), num_samples)
-                data_array = data_array[indices]
-                label_array = label_array[indices]
-            
+                valid_indices = [i for i in range(data_array.shape[0]) if np.sum(label_array[i] > 0) > 100]
+                if len(valid_indices) < num_samples:
+                    raise ValueError(f"Not enough samples with more than 100 stream pixels in {loc}.")
+                
+                selected_indices = random.sample(valid_indices, num_samples)
+                data_array = data_array[selected_indices]
+                label_array = label_array[selected_indices]
+
             data.append(data_array)
             labels.append(label_array)
         
@@ -201,7 +227,7 @@ class JointDataLoader:
 
         print(f"Loaded test data from {locations}:")
         print(f"Data shape: {data.shape}, Labels shape: {labels.shape}")
-        
+
         return data, labels
 
 # Example usage for training
@@ -215,3 +241,24 @@ class JointDataLoader:
 # test_locations = ['Covington']  # Location for testing
 # joint_data_loader_test = JointDataLoader(data_path, test_locations, mode='test', batch_size=32)
 # test_dataset = joint_data_loader_test.load_data()
+
+
+def visualize_predictions(model, test_dataset, num_samples=10):
+    # Get random samples from the test dataset
+    test_data, test_labels = next(iter(test_dataset.unbatch().batch(num_samples)))
+    
+    predictions = model.predict(test_data)
+
+    fig, axes = plt.subplots(num_samples, 10, figsize=(25, num_samples * 2.5))
+    for i in range(num_samples):
+        for j in range(8):
+            axes[i, j].imshow(test_data[i, :, :, j], cmap='gray')
+            axes[i, j].set_title(f'Input {j+1}')
+        axes[i, 8].imshow(test_labels[i, :, :], cmap='gray')
+        axes[i, 8].set_title('Ground Truth')
+        axes[i, 9].imshow(predictions[i, :, :], cmap='gray')
+        axes[i, 9].set_title('Prediction')
+        for ax in axes[i]:
+            ax.axis('off')
+    plt.tight_layout()
+    return fig

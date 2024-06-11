@@ -3,16 +3,16 @@ import argparse
 import wandb
 import datetime
 import tensorflow as tf
-from libs.data_util import JointDataLoader 
+from libs.data_util import JointDataLoader, visualize_predictions
 from libs.unet import SimpleUNet
 from libs.attentionUnet import AttentionUnet
-from libs.loss import dice_loss
+from libs.loss import dice_loss, dice_coefficient
 from wandb.integration.keras import WandbMetricsLogger
 
 # --- Data Loading and Preprocessing ---
 
-def load_data(data_dir, locations, num_samples, mode='train'):
-    data_loader = JointDataLoader(data_dir, locations, num_samples, mode=mode)
+def load_data(data_dir, locations, num_samples, mode='train', batch_size=32, normalization_type="-1"):
+    data_loader = JointDataLoader(data_dir, locations, num_samples, mode=mode, batch_size=batch_size, normalization_type=normalization_type)
     if mode == 'train':
         train_dataset, vali_dataset = data_loader.load_data()
         return train_dataset, vali_dataset
@@ -24,16 +24,15 @@ def train_and_save_model(model, train_dataset, vali_dataset, model_path, epochs,
     # Callbacks
     callbacks = [
         tf.keras.callbacks.EarlyStopping(patience=patience, restore_best_weights=True),
-        tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(model_path, save_name), save_best_only=True, save_weights_only=save_weights_only),
+        tf.keras.callbacks.ModelCheckpoint(filepath=os.path.join(model_path, save_name), monitor="val_loss", mode="min", save_best_only=True, save_weights_only=save_weights_only),
         tf.keras.callbacks.TensorBoard(log_dir=model_path),
         WandbMetricsLogger()
     ]
 
     # Compile model
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=initial_lr),
-                  loss=dice_loss,
-                  metrics=["accuracy",
-                            tf.keras.metrics.BinaryIoU(target_class_ids=[1], threshold=0.5, name="iou")])
+                  loss = dice_loss,
+                  metrics=[dice_coefficient,'accuracy'])
 
     # Training
     history = model.fit(train_dataset,
@@ -42,24 +41,6 @@ def train_and_save_model(model, train_dataset, vali_dataset, model_path, epochs,
                         callbacks=callbacks)
 
     return model
-
-def visualize_predictions(model, test_dataset, num_samples=10):
-    # Get random samples from the test dataset
-    test_data = next(iter(test_dataset.unbatch().batch(num_samples)))
-    predictions = model.predict(test_data)
-
-    fig, axes = plt.subplots(num_samples, 3, figsize=(15, num_samples * 3))
-    for i in range(num_samples):
-        axes[i, 0].imshow(test_data[i, :, :, 0], cmap='gray')
-        axes[i, 0].set_title('Input')
-        axes[i, 1].imshow(test_labels[i, :, :, 0], cmap='gray')
-        axes[i, 1].set_title('Ground Truth')
-        axes[i, 2].imshow(predictions[i, :, :, 0], cmap='gray')
-        axes[i, 2].set_title('Prediction')
-    plt.tight_layout()
-    return fig
-
-
 
 # --- Argument Parsing ---
 
@@ -103,6 +84,8 @@ if __name__ == "__main__":
                    "source_locations" : args.source_locations,
                    "target_location" : args.target_location
                })
+    
+    wandb.define_metric("epoch")
 
     run_id = wandb.run.id  # Save the run ID
     run_id_path = os.path.join(model_path, 'wandb_run_id.txt')
@@ -144,13 +127,14 @@ if __name__ == "__main__":
                sync_tensorboard=True,
                id=run_id,
                name=name)
+    
+    wandb.define_metric("epoch")
 
     # 7. Fine-tune the model on target location and save the entire model
     model = train_and_save_model(model, train_dataset, vali_dataset, model_path, args.epochs, args.patience, args.initial_lr, args.decay_steps, args.decay_rate, 'best_target_model.h5', save_weights_only=False)
 
-
-    # 8. Visualize predictions and log to WandB
-    test_dataset = load_data(args.data_dir, [args.target_location], None, mode='test')
+    # Visualize predictions and log to WandB
+    test_dataset = load_data(args.data_dir, [args.target_location], num_samples=10, mode='test')
     fig = visualize_predictions(model, test_dataset, num_samples=10)
     wandb.log({"predictions": wandb.Image(fig)})
 
