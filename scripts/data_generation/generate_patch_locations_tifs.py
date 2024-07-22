@@ -8,6 +8,13 @@ def preprocess_tif(tif_data):
     tif_data[tif_data != 1] = 0
     return tif_data
 
+def normalize_tif(tif_data):
+    """Normalize the TIFF data to a range of 0-255."""
+    min_val = np.min(tif_data)
+    max_val = np.max(tif_data)
+    normalized_data = ((tif_data - min_val) / (max_val - min_val)) * 255
+    return normalized_data.astype(np.uint8)
+
 def create_grid_patches(tif_data, patch_size):
     """Create grid patches and find valid patches that contain at least one pixel with value 1."""
     valid_patches = []
@@ -88,35 +95,30 @@ def read_patch_locations(file_path):
 
     return tif_path, data_dir, patch_locations
 
-def normalize_array(arr):
-    """Normalize an array to the range 0-255."""
-    min_val = np.min(arr)
-    max_val = np.max(arr)
-    norm_arr = (arr - min_val) / (max_val - min_val) * 255
-    return norm_arr.astype(np.uint8)
-
 def stack_tif_files(data_dir, huc_code):
     """Stack specified TIFF files to create an 8-channel array."""
     if "AK_50_Dataset" in data_dir:
         file_names = [
             f"curvature_{huc_code}.tif",
             f"swm1_{huc_code}.tif",
+            f"swm2_{huc_code}.tif",
             f"ori_{huc_code}.tif",  # Adjusted filename
             f"dsm_{huc_code}.tif",
             f"geomorph_{huc_code}.tif",
             f"pos_openness_{huc_code}.tif",
-            f"tpi_3_{huc_code}.tif",
+            f"tpi_11_{huc_code}.tif",
             f"twi_{huc_code}.tif"
         ]
     else:
         file_names = [
             f"curvature_{huc_code}.tif",
             f"swm1_{huc_code}.tif",
+            f"swm2_{huc_code}.tif",
             f"ori_ave_{huc_code}.tif",
             f"dsm_{huc_code}.tif",
             f"geomorph_{huc_code}.tif",
             f"pos_openness_{huc_code}.tif",
-            f"tpi_3_{huc_code}.tif",
+            f"tpi_11_{huc_code}.tif",
             f"twi_{huc_code}.tif"
         ]
 
@@ -125,9 +127,9 @@ def stack_tif_files(data_dir, huc_code):
     for file_name in file_names:
         file_path = os.path.join(data_dir, file_name)
         with rasterio.open(file_path) as src:
-            channel = src.read(1)
-            normalized_channel = normalize_array(channel)
-            channels.append(normalized_channel)
+            tif_data = src.read(1)
+            normalized_data = normalize_tif(tif_data)
+            channels.append(normalized_data)
 
     stacked_array = np.stack(channels, axis=-1)
     return stacked_array
