@@ -2,11 +2,6 @@
 # Ignore Colab checkpoints
 .ipynb_checkpoints/
 
-# Ignore Colab output files
-*.npy
-*.tif
-*.h5
-*.ini
 
 # Ignore Colab data files
 data/
@@ -15,10 +10,17 @@ models/
 samples/
 predicts/
 __pycache__
-pycache
+*pycache*
 
 !scripts/*
 scripts/samples
 scripts/predicts
 scripts/models
 scripts/wandb
+
+# Ignore Colab output files
+*.npy
+*.tif
+*.h5
+*.ini
+*.txt
