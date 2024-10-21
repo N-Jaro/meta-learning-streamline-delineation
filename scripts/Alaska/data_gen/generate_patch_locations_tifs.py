@@ -3,17 +3,37 @@ import argparse
 import numpy as np
 import rasterio
 
-def preprocess_tif(tif_data):
+def preprocess_label_tif(tif_data):
     """Replace values greater than 200 with 1 and values less than 0 with 0."""
     tif_data[tif_data != 1] = 0
     return tif_data
 
+# def normalize_tif(tif_data):
+#     """Normalize the TIFF data to a range of 0-255."""
+#     min_val = np.min(tif_data)
+#     max_val = np.max(tif_data)
+#     normalized_data = ((tif_data - min_val) / (max_val - min_val)) * 255
+#     return normalized_data.astype(np.uint8)
+
 def normalize_tif(tif_data):
-    """Normalize the TIFF data to a range of 0-255."""
-    min_val = np.min(tif_data)
-    max_val = np.max(tif_data)
-    normalized_data = ((tif_data - min_val) / (max_val - min_val)) * 255
-    return normalized_data.astype(np.uint8)
+    """Normalize the TIFF data using mean and standard deviation, then scale to 0-255 range."""
+    tif_data[tif_data == -9999.0] = 0
+    mean_val = np.mean(tif_data)
+    std_val = np.std(tif_data)
+
+    # Ensure that std_val is not zero to avoid division by zero
+    if std_val > 0:
+        # Perform Z-score normalization
+        z_score_data = (tif_data - mean_val) / std_val
+        
+        # Scale Z-scores to the range 0-255
+        scaled_data = 255 * (z_score_data - np.min(z_score_data)) / (np.max(z_score_data) - np.min(z_score_data))
+    else:
+        # If the standard deviation is zero, return a flat array
+        scaled_data = np.full_like(tif_data, 255 if mean_val > 0 else 0)
+    
+    return scaled_data.astype(np.uint8)
+
 
 def create_grid_patches(tif_data, patch_size):
     """Create grid patches and find valid patches that contain at least one pixel with value 1."""
@@ -30,7 +50,7 @@ def generate_locations(tif_path, patch_size, output_dir):
     with rasterio.open(tif_path) as src:
         tif_data = src.read(1)
 
-    tif_data = preprocess_tif(tif_data)
+    tif_data = preprocess_label_tif(tif_data)
     valid_patches = create_grid_patches(tif_data, patch_size)
 
     if not valid_patches:
@@ -176,6 +196,7 @@ def process_patch_files(patch_files, patch_size, output_dir):
         # Extract label patches from the input TIFF file
         with rasterio.open(tif_path) as src:
             label_array = src.read(1)
+            label_array[label_array != 1] = 0
             label_patches = extract_patches(label_array, patch_locations, patch_size)
         print(f"  Extracted label patches: {len(label_patches)}")
 
@@ -195,11 +216,13 @@ def process_patch_files(patch_files, patch_size, output_dir):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate patch locations and extract patches from TIFF files.")
-    parser.add_argument("--data_folder", type=str, required=True, help="Root folder containing the TIFF files")
-    parser.add_argument("--patch_size", type=int, default=224, help="Size of the patch (default: 224)")
-    parser.add_argument("--output_dir", type=str, required=True, help="Output directory for the text files and patches")
+    parser.add_argument("--data_folder", type=str, default='/projects/bcrm/nathanj/TIFF_data/Alaska/', required=True, help="Root folder containing the TIFF files")
+    parser.add_argument("--patch_size", type=int, default=128, help="Size of the patch (default: 224)")
+    parser.add_argument("--output_dir", type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huc_code_data_znorm_128', required=True, help="Output directory for the text files and patches")
 
     args = parser.parse_args()
+
+
 
     # Step 1: Traverse and process to generate patch locations
     traverse_and_process(args.data_folder, args.patch_size, args.output_dir)
@@ -207,3 +230,6 @@ if __name__ == "__main__":
     # Step 2: Process each patch file to extract and save patches
     patch_files = [os.path.join(args.output_dir, file) for file in os.listdir(args.output_dir) if file.endswith("_patch_locations.txt")]
     process_patch_files(patch_files, args.patch_size, args.output_dir)
+
+
+# python generate_patch_locations_tifs.py --data_folder "/projects/bcrm/nathanj/TIFF_data/Alaska" --patch_size 224 --output_dir ./huc_code_data_znorm_224/

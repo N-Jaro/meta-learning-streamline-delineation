@@ -10,9 +10,10 @@ from PIL import Image
 import copy
 
 class ModelEvaluator:
-    def __init__(self, test_data_path, model_path, mask_path, ref_image_path, clean_images=True):
+    def __init__(self, test_data_path, model_path, mask_path, ref_image_path, normalization_type="-1", clean_images=True):
         self.test_data_path = test_data_path
         self.model_path = model_path
+        self.normalization_type = normalization_type
         self.mask_path = mask_path
         self.ref_image_path = ref_image_path
         self.clean_images_flag = clean_images
@@ -36,9 +37,25 @@ class ModelEvaluator:
         self.model = load_model(self.model_path)
 
     def _predict(self):
+        
         if self.model is None or self.test_data is None:
             raise ValueError("Model and test data must be loaded before prediction.")
-        self.predictions = self.model.predict(self.test_data)
+
+        # This normalization_type was define on the top of the notebook for the dataloader
+        if self.normalization_type == '0':
+            data_min = 0
+            data_max = 255
+            data_norm = (self.test_data - data_min) / (data_max - data_min)
+        elif self.normalization_type == '-1':
+            data_min = 0
+            data_max = 255
+            data_norm = 2 * ((self.test_data - data_min) / (data_max - data_min)) - 1
+        elif self.normalization_type == 'none':
+            data_norm = self.test_data
+        else:
+            raise ValueError("Unsupported normalization type. Choose '0-1' or '-1-1'.")
+
+        self.predictions = self.model.predict(data_norm)
         self.predictions = self.predictions.reshape(self.predictions.shape[0], 224, 224)
         print(f"Predictions shape: {self.predictions.shape}")
 

@@ -17,6 +17,7 @@ scripts/samples
 scripts/predicts
 scripts/models
 scripts/wandb
+*wandb
 
 # Ignore Colab output files
 *.npy
@@ -24,3 +25,5 @@ scripts/wandb
 *.h5
 *.ini
 *.txt
+*.png
+*.csv

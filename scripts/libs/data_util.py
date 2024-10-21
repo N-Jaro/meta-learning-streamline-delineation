@@ -170,6 +170,7 @@ class JointDataLoader:
             label_path = os.path.join(self.data_path, loc, f'{data_type}_label.npy')
             
             data_array = np.load(data_path)
+            data_array[data_array < 0] = 0
             # Normalize data
             data_array = self.normalize_data(data_array) 
             label_array = np.load(label_path)
@@ -206,6 +207,7 @@ class JointDataLoader:
             label_path = os.path.join(self.data_path, loc, 'bottom_half_test_label_patches.npy')
             
             data_array = np.load(data_path)
+            data_array[data_array < 0] = 0
             # Normalize data
             datdata_arraya = self.normalize_data(data_array)
             label_array = np.load(label_path)

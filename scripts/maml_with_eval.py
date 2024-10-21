@@ -5,11 +5,13 @@ import numpy as np
 import datetime
 import tensorflow as tf
 import matplotlib.pyplot as plt
+from sklearn.metrics import f1_score, precision_score, recall_score, cohen_kappa_score
 from libs.data_util import MetaDataLoader
 from libs.attentionUnet import AttentionUnet
 from libs.unet import SimpleUNet
 from libs.loss import dice_coefficient, dice_loss
 from adapt_model import adapt_to_new_task, evaluate_adapted_model
+
 
 # --- Meta-training ---
 
@@ -31,21 +33,22 @@ def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.0
         os.makedirs(model_path)
     print(f'Initialize the Training process: {name}')
 
+    config={"initial_meta_lr": initial_meta_lr,
+            "initial_inner_lr": initial_inner_lr,
+            "decay_steps": decay_steps,
+            "decay_rate": decay_rate,
+            "meta_batch_size": meta_batch_size,
+            "inner_steps": inner_steps,
+            "epochs": epochs,
+            "patience": patience,
+            "model_path": model_path,
+            "model_type": "unet"
+        }
+
     # Initialize WandB
-    wandb.init( project="maml_experiment",
-                name = name,
-                config={
-                    "initial_meta_lr": initial_meta_lr,
-                    "initial_inner_lr": initial_inner_lr,
-                    "decay_steps": decay_steps,
-                    "decay_rate": decay_rate,
-                    "meta_batch_size": meta_batch_size,
-                    "inner_steps": inner_steps,
-                    "epochs": epochs,
-                    "patience": patience,
-                    "model_path": model_path,
-                    "model_type": "unet"
-                })
+    wandb.init(project="maml_experiment",
+               name=name,
+               config=config)
 
     # Define learning rate schedules
     inner_lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
@@ -81,21 +84,20 @@ def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.0
                 query_labels = episode["query_set_labels"]
                 val_predictions = model_copy(query_data)
                 val_loss = dice_loss(query_labels, val_predictions)
-                
-                # Compute gradients for meta-update using the base model's variables
-                with tf.GradientTape() as meta_tape:
-                    meta_tape.watch(model_copy.trainable_variables)
-                    new_val_loss = dice_loss(query_labels, model_copy(query_data))
-                gradients = meta_tape.gradient(new_val_loss, model_copy.trainable_variables)
-                task_losses.append(new_val_loss.numpy())
+                task_losses.append(val_loss.numpy())
 
                 wandb.log({
                     "epoch": epoch,
                     "episode": episode_index,
                     "eps_loss": tf.reduce_mean(episode_losses),
-                    "eps_val_loss": val_loss.numpy(),
-                    "new_val_loss": new_val_loss.numpy()
+                    "eps_val_loss": val_loss.numpy()
                 })
+
+                # Compute gradients for meta-update using the base model's variables
+                with tf.GradientTape() as meta_tape:
+                    meta_tape.watch(model_copy.trainable_variables)
+                    new_val_loss = dice_loss(query_labels, model_copy(query_data))
+                gradients = meta_tape.gradient(new_val_loss, model_copy.trainable_variables)
 
                 # Map gradients back to the base model's variables
                 mapped_gradients = [tf.identity(grad) for grad in gradients]
@@ -138,9 +140,8 @@ def maml_model(base_model, episodes, initial_meta_lr=0.001, initial_inner_lr=0.0
 
         print(f"Epoch {epoch + 1} completed, Mean Validation Loss across all episodes: {mean_loss}")
 
-    print(f"Completed training for maximum {epochs} epochs.")
     wandb.finish()
-    return base_model, model_path
+    return base_model, model_path, name, config
 
 
 # --- Argument Parsing ---
@@ -150,20 +151,22 @@ if __name__ == "__main__":
     parser.add_argument('--model', type=str, default='unet', choices=['unet', 'attentionUnet'], help='Model architecture')
     parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
     parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
-    parser.add_argument('--training_locations', nargs='+', default=['Rowancreek','Covington'], help='Locations for meta-training') #'Alexander', 'Rowancreek',
+    parser.add_argument('--training_locations', nargs='+', default=['Alexander', 'Rowancreek'], help='Locations for meta-training')
     parser.add_argument('--testing_locations', nargs='+', default=['Covington'], help='Locations for meta-testing')
     parser.add_argument('--num_episodes', type=int, default=10, help='Number of episodes')
 
     # MAML hyperparameters
     parser.add_argument('--meta_lr', type=float, default=0.001, help='Meta learning rate')
     parser.add_argument('--inner_lr', type=float, default=0.001, help='Inner loop learning rate')
-    parser.add_argument('--decay_steps', type=int, default=150, help='Learning rate decay steps')
+    parser.add_argument('--decay_steps', type=int, default=1000, help='Learning rate decay steps')
     parser.add_argument('--decay_rate', type=float, default=0.96, help='Learning rate decay rate')
     parser.add_argument('--meta_batch_size', type=int, default=1, help='Meta batch size')
     parser.add_argument('--inner_steps', type=int, default=1, help='Number of inner loop steps')
-    parser.add_argument('--epochs', type=int, default=150, help='Number of training epochs')
-    parser.add_argument('--patience', type=int, default=5, help='Early stopping patience')
+    parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
+    parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
     parser.add_argument('--save_path', type=str, default='models', help='Path to save trained models')
+    parser.add_argument('--target_location', type=str, help='Target location for evaluation')
+    parser.add_argument('--predict_path', type=str, default='predictions', help='Path to save predictions')
 
     args = parser.parse_args()
 
@@ -183,10 +186,12 @@ if __name__ == "__main__":
     model.summary()
 
     # 3. Meta-training
-    maml_model, model_path = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
+    maml_model, model_path, name, config = maml_model(model, meta_train_episodes, initial_meta_lr=args.meta_lr,
                                         initial_inner_lr=args.inner_lr, decay_steps=args.decay_steps,
                                         decay_rate=args.decay_rate, meta_batch_size=args.meta_batch_size,
                                         inner_steps=args.inner_steps, epochs=args.epochs, patience=args.patience,
                                         save_path=args.save_path)
 
+    #add source model to config of the target model.
+    config["source_model"] = name
     print("the best MAML model saved at:", model_path)
