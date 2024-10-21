@@ -51,13 +51,16 @@ def maml_training(base_model, episodes, config):
 
     for epoch in range(config['epochs']):
         task_losses = []
+        meta_lr = meta_lr_schedule(epoch)
         for batch_index in range(config['meta_batch_size']):
             task_updates = []
             for episode_index, episode in enumerate(episodes):
                 model_copy = tf.keras.models.clone_model(base_model)
                 model_copy.set_weights(base_model.get_weights())
 
-                inner_optimizer = tf.keras.optimizers.SGD(learning_rate=inner_lr_schedule(epoch * len(episodes) + episode_index))
+                # Get current inner learning rate for the episode
+                inner_lr = inner_lr_schedule(epoch * len(episodes) + episode_index)
+                inner_optimizer = tf.keras.optimizers.SGD(learning_rate=inner_lr)
                 support_data, support_labels = episode["support_set_data"], episode["support_set_labels"]
                 episode_losses = []
                 for _ in range(config['inner_steps']):
@@ -158,10 +161,10 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
     parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huc_code_data_znorm_128', help='Path to data directory')
-    parser.add_argument('--training_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/new_meta_train_huc_code/huc_code_random_10_train.csv', help='Path to training CSV file')
+    parser.add_argument('--training_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/5_kmean_clusters/huc_code_kmean_5_train.csv', help='Path to training CSV file')
     # parser.add_argument('--testing_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huvc_code_clusters/huc_code_test.csv', help='Path to testing CSV file')
     parser.add_argument('--num_watersheds_per_episode', type=int, default=1, help='Number of watersheds per episode')
-    parser.add_argument('--num_samples_per_location', type=int, default=10, help='Number of samples per location')
+    parser.add_argument('--num_samples_per_location', type=int, default=25, help='Number of samples per location')
     parser.add_argument('--normalization_type', type=str, default='-1', choices=['-1', '0', 'none'], help='Normalization range')
     parser.add_argument('--num_episodes', type=int, default=25, help='Number of episodes')
 

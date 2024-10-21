@@ -10,24 +10,22 @@ sweep_config = {
     },
     'parameters': {
         'meta_lr': {
-            'min': 0.0007,
-            'max': 0.005
+            'value': 0.0180
         },
         'inner_lr': {
-            'min': 0.005,
-            'max': 0.05
+            'value': 0.0089
         },
         'inner_steps': {
-            'values': [1, 2, 3]
-        },
-        'num_watersheds_per_episode': {
-            'value': 10
-        },
-        'num_samples_per_location': {
             'value': 3
         },
+        'num_watersheds_per_episode': {
+            'value': 1
+        },
+        'num_samples_per_location': {
+            'values': [1, 5, 10, 15, 20, 25, 30, 50, 100]
+        },
         'num_episodes': {
-            'value': 20
+            'value': 25
         },
         'epochs': {
             'value': 100
@@ -36,7 +34,7 @@ sweep_config = {
             'value': 15
         },
         'data_dir': {
-            'value': '/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huc_code_data_znorm_128'
+            'value': '/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/huc_code_data_znorm_128/'
         },
         'training_csv': {
             'value': '/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huvc_code_clusters/huc_code_train.csv'
