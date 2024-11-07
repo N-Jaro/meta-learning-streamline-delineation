@@ -128,6 +128,8 @@ def stack_tif_files(data_dir, huc_code):
             f"pos_openness_{huc_code}.tif",
             f"tpi_11_{huc_code}.tif",
             f"twi_{huc_code}.tif"
+            f"tpi_3_{huc_code}.tif",
+            f"dtm_{huc_code}.tif",
         ]
     else:
         file_names = [
@@ -140,6 +142,8 @@ def stack_tif_files(data_dir, huc_code):
             f"pos_openness_{huc_code}.tif",
             f"tpi_11_{huc_code}.tif",
             f"twi_{huc_code}.tif"
+            f"tpi_3_{huc_code}.tif",
+            f"dtm_{huc_code}.tif",
         ]
 
     # Read and stack the TIFF files

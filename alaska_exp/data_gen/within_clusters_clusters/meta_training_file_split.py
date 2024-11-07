@@ -3,7 +3,7 @@ import os
 import random
 
 # Load the CSV file into a DataFrame
-df = pd.read_csv('/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huc_code_clusters/merged_huc_code_clusters.csv')
+df = pd.read_csv('/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/merged_huc_code_clusters.csv')
 print("CSV file loaded successfully.")
 print(df.head())  # Print first few rows for verification
 
@@ -36,17 +36,18 @@ def process_scenario(scenario, cluster_size):
     # DataFrame to store combined train data for this scenario
     combined_train_data = pd.DataFrame(columns=['huc_code', 'cluster'])
     
-    # For each cluster, select 50% of the train data and output to a CSV file
+    # For each cluster, select X% of the train data and output to a CSV file
+    X = 0.10 # 1% = 0.01 | 5% = 0.05 | 10% = 0.10 |25% = 0.25 
     for cluster in unique_clusters:
         print(f"\nProcessing cluster: {cluster}")
         cluster_data = train_data[train_data[cluster_col] == cluster]
         print(f"Cluster {cluster} has {len(cluster_data)} train samples.")
         
-        # Randomly select 50% of the train data
-        selected_data = cluster_data.sample(frac=0.5, random_state=42)
+        # Randomly select X% of the train data
+        selected_data = cluster_data.sample(frac=X, random_state=42)
         print(f"Selected {len(selected_data)} samples for cluster {cluster}.")
         
-        # Get the remaining 50% of the train data (for adaptation)
+        # Get the remaining X% of the train data (for adaptation)
         remaining_data = cluster_data.drop(selected_data.index)
         print(f"Remaining {len(remaining_data)} samples for adaptation in cluster {cluster}.")
         
