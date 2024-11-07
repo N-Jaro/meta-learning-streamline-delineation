@@ -10,9 +10,6 @@ import matplotlib.pyplot as plt
 from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_score, recall_score, f1_score
 
-# Define the channels to be used
-channels = [0, 1, 2, 3, 4, 6, 7, 8]
-
 # Function to normalize data based on the specified normalization type
 def normalize_data(data, normalization_type='-1'):
     """Normalizes data based on the specified normalization type."""
@@ -38,7 +35,7 @@ def load_model(model_path):
     print(f"Loaded model from {model_path}")
     return model
 
-def load_data_and_labels_from_csv(csv_path, data_dir, normalization_type):
+def load_data_and_labels_from_csv(csv_path, data_dir, normalization_type, channels):
     """Loads and concatenates the data and label .npy files listed in the CSV, selecting specific channels."""
     import pandas as pd  # Import pandas locally, as it's used in this function
     df = pd.read_csv(csv_path)
@@ -94,16 +91,17 @@ def extract_scenario_from_filename(csv_filename):
 
 # Function to plot the channels of an input patch, prediction, and label
 def plot_patch_channels(huc_code, X_test_patch, y_pred_patch, y_test_patch, save_path, channels):
-    num_channels = X_test_patch.shape[-1]
+    num_channels = len(channels)
     
     # Create a figure for the plot
-    fig, axes = plt.subplots(2, (num_channels // 2) + 1, figsize=(20, 10))
+    fig, axes = plt.subplots(2, 6, figsize=(20, 10))
     
     # Plot each channel of the input patch
     for i in range(num_channels):
         ax = axes.flatten()[i]
         ax.imshow(X_test_patch[:, :, i], cmap='gray')
-        ax.set_title(f'Channel {channels[i] + 1}')
+        # ax.set_title(f'Channel {channels[i] + 1}')
+        ax.set_title(f'Channel {i}')
         ax.axis('off')
     
     # Plot the prediction
@@ -192,7 +190,7 @@ def adapt_model(model, data, labels, inner_steps, learning_rate, save_path, proj
 
     return best_model, best_model_save_path
 
-def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalization_type, save_path, project_name, run_name, scenario):
+def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalization_type, save_path, project_name, run_name, scenario, channels):
     """Evaluates the model on the test set, saves plots, and logs results to WandB."""
     import pandas as pd  # Import pandas locally, as it's used in this function
 
@@ -210,8 +208,7 @@ def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalizatio
     # Convert the 'huc_code' column to a list
     huc_codes_list = huc_codes['huc_code'].tolist()
     
-    # Define the channels to be used
-    channels = [0, 1, 2, 3, 4, 6, 7, 8]
+   
     
     # Initialize lists to store performance metrics for each huc_code
     metrics = []
@@ -233,7 +230,7 @@ def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalizatio
         y_test = np.load(label_path)  # Shape: (num_samples, 128, 128)
         
         # Select only the specific channels
-        X_test = X_test[:, :, :, channels]  # Shape: (num_samples, 128, 128, 8)
+        X_test = X_test[:, :, :, channels]  # Shape: (num_samples, 128, 128, total_channels)
         
         # Normalize the data
         X_test = normalize_data(X_test, normalization_type)
@@ -242,7 +239,7 @@ def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalizatio
         y_pred_probs = model.predict(X_test)  # Shape: (num_samples, 128, 128)
         
         # Convert predicted probabilities into binary class labels (threshold of 0.5)
-        y_pred = (y_pred_probs > 0.5).astype(int)  # Shape: (num_samples, 128, 128)
+        y_pred = (y_pred_probs > 0.33).astype(int)  # Shape: (num_samples, 128, 128)
         
         # Select the 10th input patch, prediction, and label for plotting
         if X_test.shape[0] >= 10:
@@ -297,7 +294,7 @@ def evaluate_model(model, best_model_save_path, csv_path, data_dir, normalizatio
     # Finish the WandB run
     wandb.finish()
 
-def process_adapt_and_evaluate(model_path, csv_folder, data_dir, inner_steps, learning_rate, wandb_project, normalization_type, patience, model_save_path):
+def process_adapt_and_evaluate(model_path, csv_folder, data_dir, inner_steps, learning_rate, wandb_project, normalization_type, patience, model_save_path, eval_save_paths, channels):
     """Automates the adaptation and evaluation process for CSV files in a given folder."""
     
     # Check if the model_save_path exists
@@ -312,7 +309,7 @@ def process_adapt_and_evaluate(model_path, csv_folder, data_dir, inner_steps, le
             print(f"Processing adaptation for {csv_file}")
             
             # Load and concatenate the data and labels
-            combined_data, combined_labels = load_data_and_labels_from_csv(csv_file, data_dir, normalization_type)
+            combined_data, combined_labels = load_data_and_labels_from_csv(csv_file, data_dir, normalization_type, channels)
             
             # Load the saved model
             model = load_model(model_path)
@@ -329,16 +326,16 @@ def process_adapt_and_evaluate(model_path, csv_folder, data_dir, inner_steps, le
             print(run_name)
 
             # Adapt the model
-            best_adapted_model, best_model_save_path = adapt_model(model, combined_data, combined_labels, inner_steps, learning_rate, save_dir, "Alaska_maml_adaptation_within_clusters", run_name, scenario, patience)
+            best_adapted_model, best_model_save_path = adapt_model(model, combined_data, combined_labels, inner_steps, learning_rate, save_dir, wandb_project, run_name, scenario, patience)
 
-            eval_save_dir =  os.path.join('./clusters_evaluations_within_clusters', run_name)
+            eval_save_dir =  os.path.join(eval_save_paths, run_name)
             # Find the corresponding test file
             test_file = csv_file.replace('_adapt.csv', '_test.csv')
             if test_file in csv_file_list:
                 print(f"Evaluating adapted model on {test_file}")
                 
                 # Evaluate the adapted model on the test set
-                evaluate_model(best_adapted_model, best_model_save_path, test_file, data_dir, normalization_type, eval_save_dir, "Alaska_maml_clusters_eval_within_clusters", run_name, scenario)
+                evaluate_model(best_adapted_model, best_model_save_path, test_file, data_dir, normalization_type, eval_save_dir, wandb_project, run_name, scenario, channels)
             else:
                 print(f"Test file for {csv_file} not found.")
 
@@ -356,16 +353,24 @@ def create_save_directory(model_save_path, csv_file):
 # --- Argument Parsing ---
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automate adaptation and evaluation of MAML model based on HUC codes in CSV files.")
-    parser.add_argument('--model_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/new_meta_train_huc_code/5_kmean_clusters/maml_model.keras', help='meta-learning model')
-    parser.add_argument('--csv_folder', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/new_meta_train_huc_code/5_kmean_clusters/', help='Folder containing CSV files to process')
-    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/data_gen/huc_code_data_znorm_128/', help='Directory containing the .npy files')
-    parser.add_argument('--inner_steps', type=int, default=200, help='Number of adaptation steps')
+    parser.add_argument('--model_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/models/Alaska_within_clusters_samples_per_ep/maml_3_500_1_20241021_132100/maml_model.keras', help='meta-learning model')
+    parser.add_argument('--csv_folder', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/5_kmean_clusters/', help='Folder containing CSV files to process')
+    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/huc_code_data_znorm_128/', help='Directory containing the .npy files')
+    parser.add_argument('--inner_steps', type=int, default=250, help='Number of adaptation steps')
     parser.add_argument('--learning_rate', type=float, default=0.0035, help='Learning rate for adaptation')
     parser.add_argument('--wandb_project', type=str, default="Alaska_maml_adaptation_within_clusters", help='WandB project name for logging')
     parser.add_argument('--normalization_type', type=str, default='-1', choices=['0', '-1', 'none'], help="Normalization type: '0', '-1', or 'none'")
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    parser.add_argument('--model_save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/scripts/Alaska/models/model_adapt_10022024/', help='Path to save adapted models')
+    parser.add_argument('--model_save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/models/Alaska_within_clusters_simpleattention_15_samples/maml_3_500_1_20241023_094331/', help='Path to save adapted models')
+    parser.add_argument('--eval_save_paths', type=str, default='./new_data_clusters_simpleAttentionUnet/', help='Path to save evaluations')
+    parser.add_argument('--channels', type=int, nargs='+', default=[0, 1, 2, 4, 6, 7, 8, 9, 10], help='List of channels to use in the dataset (e.g., 0 1 2 4 6 7 8 9 10)')
 
     args = parser.parse_args()
 
-    process_adapt_and_evaluate(args.model_path, args.csv_folder, args.data_dir, args.inner_steps, args.learning_rate, args.wandb_project, args.normalization_type, args.patience, args.model_save_path)
+    process_adapt_and_evaluate(args.model_path, args.csv_folder, args.data_dir, args.inner_steps, args.learning_rate, args.wandb_project, args.normalization_type, args.patience, args.model_save_path, args.eval_save_paths, args.channels)
+
+# Define the channels to be used
+#The old data in data_gen has 9 channels. We skipped only Geomorephons (channels=[0,1,2,3,4,6,7,8])
+#channels = [0, 1, 2, 3, 4, 6, 7, 8]
+#The new data in data_gen_2 has 11 channels. We skip ORI and Geomorephons (channels=[0,1,2,4,6,7,8,9,10])
+# channels=[0, 1, 2, 4, 6, 7, 8, 9, 10]
