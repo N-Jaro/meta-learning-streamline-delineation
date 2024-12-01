@@ -153,14 +153,17 @@ def maml_training(base_model, episodes, config):
             print(f"Reducing meta learning rate from {old_meta_lr} to {new_meta_lr}")
             meta_lr_no_improvement_count = 0  # Reset the no improvement counter for meta_lr
 
+                # Early stopping condition
+        if no_improvement_count >= config['patience']:
+            print(f"Early stopping triggered after {epoch + 1} epochs with best validation loss: {best_loss}")
+            break
+
         tf.keras.backend.clear_session()
         print(f"Epoch {epoch + 1} completed, Mean Validation Loss across all episodes: {mean_loss}")
 
     print(f"Completed training for maximum {config['epochs']} epochs.")
     wandb.finish()
     return base_model, model_path
-
-
 
 def main(args):
     config = {
@@ -191,8 +194,8 @@ def main(args):
     episode_record = dataset.get_episode_record()
     print("Record of watersheds used in each episode:", episode_record)
 
-    model = setup_model(config['model_type'], input_shape=(128, 128, len(config['channels'])), num_classes=1)
-    # model.summary()
+    model = setup_model(config['model_type'], input_shape=(128, 128,  len(config['channels'])), num_classes=1)
+    model.summary()
 
     maml_model, model_path = maml_training(model, meta_train_episodes, config)
 
