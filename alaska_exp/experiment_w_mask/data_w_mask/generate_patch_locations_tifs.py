@@ -5,7 +5,7 @@ import rasterio
 
 def preprocess_label_tif(tif_data):
     """Replace values greater than 200 with 1 and values less than 0 with 0."""
-    tif_data[tif_data != 0] = 1
+    tif_data[tif_data != 1] = 0
     return tif_data
 
 def normalize_tif(tif_data):
@@ -124,7 +124,7 @@ def stack_tif_files(data_dir, huc_code):
             f"curvature_{huc_code}.tif",
             f"swm1_{huc_code}.tif",
             f"swm2_{huc_code}.tif",
-            f"ori_{huc_code}.tif",  # Adjusted filename
+            f"ori_{huc_code}.tif",  
             f"dsm_{huc_code}.tif",
             f"geomorph_{huc_code}.tif",
             f"pos_openness_{huc_code}.tif",
@@ -198,32 +198,37 @@ def process_patch_files(patch_files, patch_size, output_dir):
 
         # Extract patches using the patch locations
         data_patches = extract_patches(stacked_array, patch_locations, patch_size)
-        print(f"  Extracted data patches: {len(data_patches)}")
+        data_patches = np.array(data_patches)
+        print(f"  Extracted data patches: {data_patches.shape}")
 
-        # Extract label patches from the input TIFF file
+        # Extract label patches from the input TIFF file This include 254 and 255 
+        label_stacked = []
         with rasterio.open(tif_path) as src:
-            label_array = src.read(1)
-            label_patches = extract_patches(label_array, patch_locations, patch_size)
-        print(f"  Extracted label patches: {len(label_patches)}")
 
-        # Accumulate patches by HUC code
-        if huc_code not in huc_code_data_patches:
-            huc_code_data_patches[huc_code] = []
-            huc_code_label_patches[huc_code] = []
+            # raw label includes 254 and 255 
+            label_array_raw = src.read(1)
+            label_stacked.append(label_array_raw)
 
-        huc_code_data_patches[huc_code].extend(data_patches)
-        huc_code_label_patches[huc_code].extend(label_patches)
+            # filtered label set 254 and 255 to 0
+            label_array = np.copy(label_array_raw)
+            label_array[label_array!=1] = 0
+            label_stacked.append(label_array)
 
-    # Save the accumulated patches for each HUC code
-    for huc_code in huc_code_data_patches:
-        print(f"Saving patches for HUC code: {huc_code}")
-        save_patches(huc_code_data_patches[huc_code], output_dir, huc_code, 'data')
-        save_patches(huc_code_label_patches[huc_code], output_dir, huc_code, 'label')
+            # stack the raw and filtered label
+            label_stacked = np.stack(label_stacked, axis=-1)
+
+            label_patches = extract_patches(label_stacked, patch_locations, patch_size)
+            label_patches = np.array(label_patches)
+        print(f"  Extracted label patches: {label_patches.shape}")
+
+        save_patches(data_patches, output_dir, huc_code, 'data')
+        save_patches(label_patches, output_dir, huc_code, 'label')
+        print(f"Saving patches for HUC code: {huc_code}")  
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate patch locations and extract patches from TIFF files.")
     parser.add_argument("--data_folder", type=str, default='/projects/bcrm/nathanj/TIFF_data/Alaska/', help="Root folder containing the TIFF files")
-    parser.add_argument("--patch_size", type=int, default=128, help="Size of the patch (default: 224)")
+    parser.add_argument("--patch_size", type=int, default=128, help="Size of the patch (default: 128)")
     parser.add_argument("--output_dir", type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/experiment_w_mask/data_w_mask/huc_code_data_znorm_128/', help="Output directory for the text files and patches")
 
     args = parser.parse_args()
