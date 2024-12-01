@@ -82,11 +82,11 @@ def maml_training(base_model, episodes, config):
 
                 query_data, query_labels = episode["query_set_data"], episode["query_set_labels"]
                 val_predictions = model_copy(query_data)
-                val_loss = dice_loss(query_labels, val_predictions)
+                val_loss = dice_loss_w_mask(query_labels, val_predictions)
 
                 with tf.GradientTape() as meta_tape:
                     meta_tape.watch(model_copy.trainable_variables)
-                    new_val_loss = dice_loss(query_labels, model_copy(query_data))
+                    new_val_loss = dice_loss_w_mask(query_labels, model_copy(query_data))
                 gradients = meta_tape.gradient(new_val_loss, model_copy.trainable_variables)
                 task_losses.append(new_val_loss.numpy())
 
@@ -205,11 +205,8 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MAML for medical image segmentation")
 
-    #old data_gen has 9 channels
-    # parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/huc_code_data_znorm_128', help='Path to data directory')
-
     #new data_gen_2 has 11 channels
-    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen_2/huc_code_data_znorm_128', help='Path to data directory')
+    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/experiment_w_mask/data_w_mask/huc_code_data_znorm_128', help='Path to data directory')
 
     parser.add_argument('--training_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/5_kmean_clusters/huc_code_kmean_5_train.csv', help='Path to training CSV file')
     parser.add_argument('--num_watersheds_per_episode', type=int, default=1, help='Number of watersheds per episode')
@@ -234,8 +231,8 @@ if __name__ == "__main__":
     parser.add_argument('--inner_steps', type=int, default=3, help='Number of inner loop steps')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    parser.add_argument('--save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/models/new_data_exp/', help='Path to save trained models')
-    parser.add_argument('--wandb_project_name', type=str, default='Alaska_maml_train_percent_exp', help='Path to save trained models')
+    parser.add_argument('--save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/experiment_w_mask/maml_models', help='Path to save trained models')
+    parser.add_argument('--wandb_project_name', type=str, default='maml_model_w_mask_ref', help='Path to save trained models')
 
     args = parser.parse_args()
 
