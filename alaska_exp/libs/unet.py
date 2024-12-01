@@ -32,6 +32,46 @@ class SimpleUNet:
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         return model
 
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv2D, MaxPooling2D, Conv2DTranspose, concatenate
+
+class DeeperUnet:
+    def __init__(self, input_shape=(224, 224, 8), num_classes=1):
+        self.input_shape = input_shape
+        self.num_classes = num_classes
+
+    def build_model(self):
+        inputs = Input(shape=self.input_shape)
+        
+        # Downsampling path
+        c1 = Conv2D(32, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(inputs)
+        p1 = MaxPooling2D((2, 2))(c1)
+        
+        c2 = Conv2D(64, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(p1)
+        p2 = MaxPooling2D((2, 2))(c2)
+        
+        c3 = Conv2D(128, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(p2)
+        p3 = MaxPooling2D((2, 2))(c3)
+        
+        # Bottleneck
+        c4 = Conv2D(256, (3, 3), activation='relu', padding='same', kernel_initializer='he_normal')(p3)
+        
+        # Upsampling path
+        u1 = Conv2DTranspose(128, (3, 3), strides=(2, 2), activation='relu', padding='same', kernel_initializer='he_normal')(c4)
+        u1 = concatenate([u1, c3])
+        
+        u2 = Conv2DTranspose(64, (3, 3), strides=(2, 2), activation='relu', padding='same', kernel_initializer='he_normal')(u1)
+        u2 = concatenate([u2, c2])
+        
+        u3 = Conv2DTranspose(32, (3, 3), strides=(2, 2), activation='relu', padding='same', kernel_initializer='he_normal')(u2)
+        u3 = concatenate([u3, c1])
+        
+        # Output layer
+        outputs = Conv2D(self.num_classes, (1, 1), activation='sigmoid', padding='same')(u3)
+        
+        # Create the model
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        return model
 
 class SimpleAttentionUNet:
     def __init__(self, input_shape=(224, 224, 8), num_classes=1):
