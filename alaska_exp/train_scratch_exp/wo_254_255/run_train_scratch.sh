@@ -3,7 +3,7 @@
 # Set the account name
 #SBATCH -A bcrm-tgirails
 # Set the job name
-#SBATCH --job-name=run_all_exps
+#SBATCH --job-name=scratch_train
 # Set the partition
 #SBATCH --partition=gpu
 # Set the number of nodes
@@ -20,14 +20,14 @@
 # Set the time limit (hh:mm:ss)
 #SBATCH --time=10:00:00
 # Set the output file
-#SBATCH --output=train_scratch_output_%j.txt
+#SBATCH --output=logs/train_scratch_output_%j.txt
 
 # Activate the Conda environment
 source /u/nathanj/.bashrc
 conda activate meta_learning
 
+# Change to the directory containing the batch script
+cd /u/nathanj/meta-learning-streamline-delineation/alaska_exp/train_scratch_exp/wo_254_255/ || exit
+
 # Run the Python script
 python alaska_train_scratch.py
-
-# Optional: If you want to print out the conda environment info (commented out)
-# conda info --envs

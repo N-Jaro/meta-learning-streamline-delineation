@@ -4,7 +4,6 @@
 
 
 # Ignore Colab data files
-data/
 logs/
 models/
 samples/
@@ -27,3 +26,4 @@ scripts/wandb
 *.txt
 *.png
 *.csv
+*.keras

@@ -6,7 +6,7 @@ import datetime
 import tensorflow as tf
 from libs.alaskaNKDataloader import AlaskaNKMetaDataset  # Update this import
 from libs.attentionUnet import AttentionUnet
-from libs.unet import SimpleUNet, SimpleAttentionUNet
+from libs.unet import SimpleUNet, DeeperUnet, DeeperUnet_dropout, SimpleAttentionUNet
 from libs.loss import dice_loss
 
 # --- Functions ---
@@ -25,6 +25,12 @@ def initialize_wandb(name, config):
 def setup_model(model_type, input_shape, num_classes):
     if model_type == "unet":
         model_creator = SimpleUNet(input_shape=input_shape, num_classes=num_classes)
+    elif model_type == "deeperUnet":
+        model_creator = DeeperUnet(input_shape=input_shape, num_classes=num_classes)
+    elif model_type == "deeperUnetDropout":
+        model_creator = DeeperUnet_dropout(input_shape=input_shape, num_classes=num_classes)
+    elif model_type == "simpleAttentionUnet":
+        model_creator = SimpleAttentionUNet(input_shape=input_shape, num_classes=num_classes)
     elif model_type == "simpleAttentionUnet":
         model_creator = SimpleAttentionUNet(input_shape=input_shape, num_classes=num_classes)
     elif model_type == "attentionUnet":
@@ -117,8 +123,7 @@ def maml_training(base_model, episodes, config):
                 if gradients_to_apply:
                     meta_optimizer.apply_gradients(gradients_to_apply)
 
-        mean_loss = tf.reduce_mean(task_losses) #This treats all tasks equally, regardless of their individual loss values.
-        meta_loss = tf.reduce_sum(task_losses) #This emphasizes tasks with higher losses, potentially giving them more weight in the meta-update.
+        mean_loss = tf.reduce_mean(task_losses)
         wandb.log({
             "epoch": epoch,
             "mean_val_loss": mean_loss,
@@ -210,7 +215,9 @@ if __name__ == "__main__":
     # parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/huc_code_data_znorm_128', help='Path to data directory')
 
     #new data_gen_2 has 11 channels
-    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen_2/huc_code_data_znorm_128', help='Path to data directory')
+    parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data/data_w_254_255/huc_code_data_znorm_128/', help='Path to data directory')
+    parser.add_argument('--save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/maml_exp/w_254_255/model/', help='Path to save trained models')
+    parser.add_argument('--wandb_project_name', type=str, default='alaska_w_254_255_unet', help='Path to save trained models')
 
     parser.add_argument('--training_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/5_kmean_clusters/huc_code_kmean_5_train.csv', help='Path to training CSV file')
     parser.add_argument('--num_watersheds_per_episode', type=int, default=1, help='Number of watersheds per episode')
@@ -220,9 +227,9 @@ if __name__ == "__main__":
     parser.add_argument('--channels', type=int, nargs='+', default=[0, 1, 2, 4, 6, 7, 8, 9, 10], help='Channels to use in the dataset (e.g., 0 1 2 4 6 7 8 9 10)')
 
     #simpleUnet 
-    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'simpleAttentionUnet', 'attentionUnet'], help='Model architecture')
-    parser.add_argument('--inner_lr', type=float, default=0.0180, help='Inner loop learning rate')
-    parser.add_argument('--meta_lr', type=float, default=0.0089, help='Meta learning rate')
+    parser.add_argument('--model', type=str, default='unet', choices=['unet', 'deeperUnet', 'deeperUnetDropout', 'simpleAttentionUnet', 'attentionUnet'], help='Model architecture')
+    parser.add_argument('--inner_lr', type=float, default=0.000780, help='Inner loop learning rate')
+    parser.add_argument('--meta_lr', type=float, default=0.000359, help='Meta learning rate')
 
     #SimpleAttentionUnet
     # parser.add_argument('--model', type=str, default='simpleAttentionUnet', choices=['unet', 'simpleAttentionUnet', 'attentionUnet'], help='Model architecture')
@@ -235,8 +242,7 @@ if __name__ == "__main__":
     parser.add_argument('--inner_steps', type=int, default=3, help='Number of inner loop steps')
     parser.add_argument('--epochs', type=int, default=500, help='Number of training epochs')
     parser.add_argument('--patience', type=int, default=15, help='Early stopping patience')
-    parser.add_argument('--save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/models/new_data_exp/', help='Path to save trained models')
-    parser.add_argument('--wandb_project_name', type=str, default='Alaska_maml_train_percent_exp', help='Path to save trained models')
+
 
     args = parser.parse_args()
 

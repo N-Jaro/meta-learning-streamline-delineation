@@ -80,7 +80,7 @@ class DeeperUnet:
         return model
 
 class DeeperUnet_dropout:
-    def __init__(self, input_shape=(224, 224, 8), num_classes=1, dropout_rate=0.2):
+    def __init__(self, input_shape=(224, 224, 8), num_classes=1, dropout_rate=0.5):
         self.input_shape = input_shape
         self.num_classes = num_classes
         self.dropout_rate = dropout_rate  # Add a parameter for dropout rate
