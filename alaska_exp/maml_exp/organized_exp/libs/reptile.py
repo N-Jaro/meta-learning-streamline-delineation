@@ -11,8 +11,7 @@ from libs.alaskaNKDataloader import AlaskaNKMetaDataset
 from libs.attentionUnet import ChannelAttention, SpatialAttention
 from sklearn.metrics import precision_score, recall_score, f1_score, cohen_kappa_score, jaccard_score
 
-
-class MAMLTrainer:
+class ReptileTrainer:
     def __init__(self, base_model, episodes, config, args):
         self.base_model = base_model
         self.episodes = episodes
@@ -36,7 +35,7 @@ class MAMLTrainer:
     def _prepare_exp(self):
         # create run_name 
         date_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")   
-        self.args.run_name = f'maml_{self.args.num_samples_per_location}samples_{self.args.num_episodes}eps_{date_time}'
+        self.args.run_name = f'reptile_{self.args.num_samples_per_location}samples_{self.args.num_episodes}eps_{date_time}'
 
         # create save paths
         self.args.run_model_save_dir = os.path.join(self.args.save_path, self.args.run_name)
@@ -64,7 +63,7 @@ class MAMLTrainer:
 
     """////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////
-    //////////////////// Train initial MAML model /////////////////////
+    //////////////////// Train initial REPTILE model //////////////////
     ///////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////"""
     def _train_task_model(self, model, inputs, outputs, optimizer):
@@ -86,53 +85,69 @@ class MAMLTrainer:
 
         for epoch in range(self.config['epochs']):
             task_losses = []
-            task_updates = []
+            task_differences = []  # Store weight differences for Reptile meta-update
+
             for episode_index, episode in enumerate(self.episodes):
+                # Create a copy of the base model and set its weights
                 model_copy = tf.keras.models.clone_model(self.base_model)
                 model_copy.set_weights(self.base_model.get_weights())
+                
+                # Inner loop optimizer
                 inner_optimizer = tf.keras.optimizers.Adam(learning_rate=self.inner_lr)
 
+                # Extract support set data and labels
                 support_data, support_labels = episode["support_set_data"], episode["support_set_labels"]
+
+                # Inner training loop
                 inner_loss = []
                 for _ in range(self.config['inner_steps']):
                     model_copy, loss = self._train_task_model(model_copy, support_data, support_labels, inner_optimizer)
                     inner_loss.append(loss)
 
+                # Extract query set data and labels
                 query_data, query_labels = episode["query_set_data"], episode["query_set_labels"]
-                with tf.GradientTape() as meta_tape:
-                    meta_tape.watch(model_copy.trainable_variables)
-                    meta_loss = dice_loss(query_labels, model_copy(query_data))
-                gradients = meta_tape.gradient(meta_loss, model_copy.trainable_variables)
-                task_losses.append(meta_loss.numpy())
+                query_predictions = model_copy(query_data)
+                query_loss = dice_loss(query_labels, query_predictions)
+                task_losses.append(query_loss.numpy())
 
+                # Log inner loss and query loss
                 wandb.log({
                     "epoch": epoch,
                     "episode": episode_index,
                     "avg_inner_loss": tf.reduce_mean(inner_loss),
-                    "outer_loss": meta_loss.numpy(),
+                    "query_loss": query_loss.numpy(),
                     "inner_lr": self.inner_lr,
                 })
 
-                mapped_gradients = [tf.identity(grad) for grad in gradients]
-                task_updates.append((mapped_gradients, meta_loss))
+                # Calculate weight differences for Reptile update
+                adapted_weights = model_copy.get_weights()
+                base_weights = self.base_model.get_weights()
 
-            if task_updates:
+                weight_differences = [
+                    adapted - base for adapted, base in zip(adapted_weights, base_weights)
+                ]
+                task_differences.append(weight_differences)
+
+            # Meta-update (Reptile)
+            if task_differences:
                 num_variables = len(self.base_model.trainable_variables)
-                mean_gradients = []
-                for i in range(num_variables):
-                    grads = [update[0][i] for update in task_updates if update[0][i] is not None]
-                    if grads:
-                        mean_grad = tf.reduce_mean(tf.stack(grads), axis=0)
-                        mean_gradients.append(mean_grad)
-                    else:
-                        print(f"No gradients for variable {i}")
-                        mean_gradients.append(None)
+                mean_differences = []
 
-                gradients_to_apply = [(grad, var) for grad, var in zip(mean_gradients, self.base_model.trainable_variables) if grad is not None]
-                if gradients_to_apply:
-                    self.meta_optimizer.apply_gradients(gradients_to_apply)
-                else:
-                    print("No gradients to apply")
+                # Calculate mean weight difference across tasks for each variable
+                for i in range(num_variables):
+                    variable_differences = [task_diff[i] for task_diff in task_differences]
+                    mean_difference = tf.reduce_mean(tf.stack(variable_differences), axis=0)
+                    mean_differences.append(mean_difference)
+
+                # Apply Reptile meta-update
+                gradients_to_apply = [
+                    (mean_diff, var)
+                    for mean_diff, var in zip(mean_differences, self.base_model.trainable_variables)
+                ]
+                self.meta_optimizer.apply_gradients(gradients_to_apply)
+            else:
+                print("No tasks to update in this epoch")
+
 
             mean_loss = tf.reduce_mean(task_losses)
             wandb.log({
@@ -146,7 +161,7 @@ class MAMLTrainer:
                 self.no_improvement_count = 0
                 self.inner_lr_no_improvement_count = 0
                 self.meta_lr_no_improvement_count = 0
-                model_save_path = os.path.join(self.args.run_model_save_dir,"maml_train.keras")
+                model_save_path = os.path.join(self.args.run_model_save_dir,"reptile_train.keras")
                 self.base_model.save(model_save_path)
                 print(f"Saved new best model with validation loss: {self.best_loss}")
             else:
@@ -181,7 +196,7 @@ class MAMLTrainer:
 
     """////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////
-    ////////////// Adapt initial MAML model to clusters ///////////////
+    ////////////// Adapt initial REPTILE model to clusters ////////////
     ///////////////////////////////////////////////////////////////////
     ////////////////////////////////////////////////////////////////"""
     def _load_model(self, model_path):
@@ -256,7 +271,7 @@ class MAMLTrainer:
         plt.close()
 
     
-    def load_data_and_labels_from_csv(self, csv_path, data_dir, normalization_type, num_sample_per_location, channels):
+    def load_data_and_labels_from_csv(self, csv_path, data_dir, normalization_type, channels):
         """Loads and concatenates the data and label .npy files listed in the CSV, selecting specific channels."""
         import pandas as pd  # Import pandas locally, as it's used in this function
         df = pd.read_csv(csv_path)
@@ -274,18 +289,9 @@ class MAMLTrainer:
             data = np.load(data_path)[..., channels]  # Select only the specified channels
             data = self._normalize_data(data, normalization_type)  # Normalize data
             labels = np.load(label_path)
-
-            # Sample data (or use all if samples_per_huc_code is -1)
-            if num_sample_per_location == -1:
-                sampled_data = data
-                sampled_labels = labels
-            else:
-                indices = np.random.choice(data.shape[0], size=num_sample_per_location, replace=False)
-                sampled_data = data[indices]
-                sampled_labels = labels[indices]
             
-            all_data.append(sampled_data)
-            all_labels.append(sampled_labels)
+            all_data.append(data)
+            all_labels.append(labels)
             
             print(f"Loaded data and labels for HUC code: {huc_code}")
 
@@ -297,70 +303,7 @@ class MAMLTrainer:
 
         return combined_data, combined_labels
 
-    def adapt_cluster_fit(self, csv_path, init_model_path, scenario, num_samples_per_location=-1):
-        # Set the model save path for this cluster
-        self.args.model_save_path = os.path.join(self.args.run_model_save_dir, f"cluster_{scenario['cluster_id']}_model")
-
-        # Load the model
-        model = self._load_model(init_model_path)
-
-        # Compile the model with the optimizer and loss
-        optimizer = tf.keras.optimizers.Adam(learning_rate=self.args.adapt_learning_rate)
-        model.compile(optimizer=optimizer, loss=dice_loss, metrics=[dice_loss])
-
-        # Load the data and labels
-        data, labels = self.load_data_and_labels_from_csv(
-            csv_path, 
-            self.args.data_dir, 
-            self.args.normalization_type, 
-            num_samples_per_location, 
-            self.args.channels
-        )
-
-        # Split the data into training and validation sets
-        train_data, val_data, train_labels, val_labels = train_test_split(
-            data, labels, test_size=0.3, random_state=44
-        )
-
-        # Create callbacks for early stopping and model checkpoint
-        early_stopping = tf.keras.callbacks.EarlyStopping(
-            monitor="val_loss", 
-            patience=self.args.patience, 
-            restore_best_weights=True
-        )
-
-        model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
-            filepath=self.args.model_save_path,
-            monitor="val_loss",
-            save_best_only=True,
-            verbose=1,
-            options=None
-        )
-
-        # Train the model using Keras's fit function
-        history = model.fit(
-            train_data, 
-            train_labels, 
-            validation_data=(val_data, val_labels), 
-            batch_size=32,
-            epochs=100,
-            callbacks=[early_stopping, model_checkpoint],
-            verbose=1
-        )
-
-        # Log training history to WandB
-        for step, (train_loss, val_loss) in enumerate(zip(history.history["loss"], history.history["val_loss"])):
-            wandb.log({
-                "adapt_step": step + 1,
-                "adapt_train_loss": train_loss,
-                "adapt_val_loss": val_loss
-            })
-
-        print(f"Training completed. Best model saved at {self.args.model_save_path}")
-
-        return model, self.args.model_save_path
-
-    def adapt_cluster(self, csv_path, init_model_path, scenario, num_samples_per_location=-1):
+    def adapt_cluster(self, csv_path, init_model_path, scenario):
         # Set the model save path for this cluster
         self.args.model_save_path = os.path.join(self.args.run_model_save_dir,f"cluster_{scenario['cluster_id']}_model.keras")
 
@@ -368,7 +311,7 @@ class MAMLTrainer:
         model = self._load_model(init_model_path)
 
         # Load the data and labels
-        data, labels = self.load_data_and_labels_from_csv(csv_path, self.args.data_dir, self.args.normalization_type, num_samples_per_location, self.args.channels)
+        data, labels = self.load_data_and_labels_from_csv(csv_path, self.args.data_dir, self.args.normalization_type, self.args.channels)
         train_data, val_data, train_labels, val_labels = train_test_split(data, labels, test_size=0.3, random_state=44)
 
         best_val_loss = float('inf')
@@ -425,7 +368,7 @@ class MAMLTrainer:
             print("No improvement in validation loss during training. No model saved.")
 
         return best_model, self.args.model_save_path
-    
+
     def evaluate_clusters(self, model, test_csv_path, scenario, threshold=0.33): 
         # Set the metrics save path for this cluster
         self.args.metrics_save_path = os.path.join(self.args.run_model_save_dir,f"cluster_{scenario['cluster_id']}_eval.csv")
@@ -465,7 +408,6 @@ class MAMLTrainer:
             y_test_flat = labels.flatten()
             
             # Calculate precision, recall, and F1-score for class 1
-            f1_stream = f1_score(y_test_flat, y_pred_flat, labels=[1], average='micro')
             precision = precision_score(y_test_flat, y_pred_flat, pos_label=1, zero_division=0)
             recall = recall_score(y_test_flat, y_pred_flat, pos_label=1, zero_division=0)
             f1 = f1_score(y_test_flat, y_pred_flat, pos_label=1, zero_division=0)
@@ -494,3 +436,4 @@ class MAMLTrainer:
         metrics_df.to_csv(self.args.metrics_save_path, index=False)
 
         return metrics_df
+

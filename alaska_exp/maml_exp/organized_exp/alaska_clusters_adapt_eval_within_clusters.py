@@ -9,7 +9,6 @@ from libs.attentionUnet import AttentionUnet, ChannelAttention, SpatialAttention
 from sklearn.model_selection import train_test_split
 from libs.loss import dice_loss
 import matplotlib.pyplot as plt
-from tensorflow.keras.models import load_model
 from sklearn.metrics import precision_score, recall_score, f1_score, cohen_kappa_score, jaccard_score, accuracy_score
 
 # Function to normalize data based on the specified normalization type

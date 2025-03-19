@@ -49,8 +49,8 @@ def maml_training(base_model, episodes, config):
     initialize_wandb(name, config)
 
     # Set initial learning rates
-    inner_lr = config['initial_inner_lr']
-    meta_lr = config['initial_meta_lr']
+    inner_lr = config['inner_lr']
+    meta_lr = config['meta_lr']
 
     # Define optimizers
     meta_optimizer = tf.keras.optimizers.Adam(learning_rate=meta_lr)
@@ -172,26 +172,7 @@ def maml_training(base_model, episodes, config):
     return base_model, model_path
 
 def main(args):
-    config = {
-        "data_dir": args.data_dir,
-        "training_csv": args.training_csv,
-        "num_watersheds_per_episode": args.num_watersheds_per_episode,
-        "num_samples_per_location": args.num_samples_per_location,
-        "normalization_type": args.normalization_type,
-        "channels": args.channels,
-        "num_episodes": args.num_episodes,
-        "initial_meta_lr": args.meta_lr,
-        "initial_inner_lr": args.inner_lr,
-        "decay_steps": args.decay_steps,
-        "decay_rate": args.decay_rate,
-        "meta_batch_size": args.meta_batch_size,
-        "inner_steps": args.inner_steps,
-        "epochs": args.epochs,
-        "patience": args.patience,
-        "save_path": args.save_path,
-        "model_type": args.model,
-        'wandb_project_name': args.wandb_project_name
-    }
+    config = vars(args)
 
     #The old data in data_gen has 9 channels. We skipped only Geomorephons (channels=[0,1,2,3,4,6,7,8])
     #The new data in data_gen_2 has 11 channels. We skip ORI and Geomorephons (channels=[0,1,2,4,6,7,8,9,10])
@@ -200,7 +181,7 @@ def main(args):
     episode_record = dataset.get_episode_record()
     print("Record of watersheds used in each episode:", episode_record)
 
-    model = setup_model(config['model_type'], input_shape=(128, 128,  len(config['channels'])), num_classes=1)
+    model = setup_model(config['model'], input_shape=(128, 128,  len(config['channels'])), num_classes=1)
     model.summary()
 
     maml_model, model_path = maml_training(model, meta_train_episodes, config)
@@ -217,7 +198,7 @@ if __name__ == "__main__":
     #new data_gen_2 has 11 channels
     parser.add_argument('--data_dir', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data/data_wo_254_255/huc_code_data_znorm_128/', help='Path to data directory')
     parser.add_argument('--save_path', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/maml_exp/wo_254_255/model', help='Path to save trained models')
-    parser.add_argument('--wandb_project_name', type=str, default='alaska_wo_254_255_unet_12052024_0204', help='Path to save trained models')
+    parser.add_argument('--wandb_project_name', type=str, default='test_maml_exp_2', help='Path to save trained models')
 
     parser.add_argument('--training_csv', type=str, default='/u/nathanj/meta-learning-streamline-delineation/alaska_exp/data_gen/within_clusters_clusters/5_kmean_clusters/huc_code_kmean_5_train.csv', help='Path to training CSV file')
     parser.add_argument('--num_watersheds_per_episode', type=int, default=1, help='Number of watersheds per episode')
